@@ -1,0 +1,43 @@
+# Dependencias
+node_modules/
+.pnpm-store/
+
+# Entorno — NUNCA commitear secretos
+.env
+.env.*
+!.env.example
+
+# Build
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Prisma
+apps/api/prisma/generated/
+
+# Tests
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+logs/
+
+# Sistema operativo / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.recommended.json
+
+# Temporales
+tmp/
+temp/
+.cache/

@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Pila del sistema: sin descarga de fuentes, sin dependencia de red en el build. */
+    --font-sans:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Segoe UI Variable Text', Roboto,
+      'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 222 47% 18%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 214 95% 93%;
+    --accent-foreground: 222 47% 18%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 35%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 222 47% 30%;
+
+    --sidebar: 222 47% 13%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-muted: 215 20% 65%;
+    --sidebar-accent: 222 47% 20%;
+    --sidebar-border: 222 40% 22%;
+
+    --radius: 0.625rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+
+  /* Barras de desplazamiento discretas: la aplicación tiene muchas tablas y
+     paneles, y el scrollbar por defecto de Windows compite con el contenido. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+}
+
+@layer components {
+  /* Superficie estándar de tarjeta/panel. */
+  .surface {
+    @apply rounded-xl border border-border bg-card shadow-sm;
+  }
+
+  /* Contenedor con desplazamiento horizontal propio: el cuerpo de la página
+     nunca debe desplazarse en horizontal, las tablas anchas sí. */
+  .scroll-x {
+    @apply w-full overflow-x-auto;
+  }
+
+  .label-caps {
+    @apply text-2xs font-semibold uppercase tracking-wider text-muted-foreground;
+  }
+}

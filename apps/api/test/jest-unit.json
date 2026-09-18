@@ -1,0 +1,24 @@
+{
+  "rootDir": "..",
+  "testEnvironment": "node",
+  "testRegex": "test/unit/.*\\.spec\\.ts$",
+  "transform": {
+    "^.+\\.ts$": [
+      "ts-jest",
+      {
+        "tsconfig": "<rootDir>/tsconfig.json",
+        "isolatedModules": true
+      }
+    ]
+  },
+  "moduleNameMapper": {
+    "^@nodus/types$": "<rootDir>/../../packages/types/src/index.ts"
+  },
+  "collectCoverageFrom": [
+    "src/**/*.ts",
+    "!src/**/*.module.ts",
+    "!src/main.ts",
+    "!src/worker.ts"
+  ],
+  "coverageDirectory": "coverage"
+}

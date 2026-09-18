@@ -1,0 +1,46 @@
+{
+  "name": "nodus-ingenieria-sas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NODUS — plataforma SaaS de orquestación empresarial (MVP)",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:api": "pnpm --filter @nodus/api dev",
+    "dev:web": "pnpm --filter @nodus/web dev",
+    "dev:worker": "pnpm --filter @nodus/api dev:worker",
+    "build": "pnpm --filter @nodus/types build && pnpm --filter @nodus/api build && pnpm --filter @nodus/web build",
+    "start:api": "pnpm --filter @nodus/api start:prod",
+    "start:web": "pnpm --filter @nodus/web start",
+    "prisma:generate": "pnpm --filter @nodus/api exec prisma generate",
+    "prisma:migrate": "pnpm --filter @nodus/api exec prisma migrate deploy",
+    "prisma:migrate:dev": "pnpm --filter @nodus/api exec prisma migrate dev",
+    "prisma:studio": "pnpm --filter @nodus/api exec prisma studio",
+    "db:seed": "pnpm --filter @nodus/api db:seed",
+    "db:reset": "pnpm --filter @nodus/api exec prisma migrate reset --force",
+    "lint": "pnpm -r lint",
+    "lint:fix": "pnpm -r lint:fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,yml,yaml}\"",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @nodus/api test",
+    "test:integration": "pnpm --filter @nodus/api test:integration",
+    "test:e2e": "pnpm --filter @nodus/api test:e2e",
+    "test:all": "pnpm --filter @nodus/api test:all",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:reset": "docker compose down -v",
+    "docker:logs": "docker compose logs -f",
+    "bootstrap": "node infra/scripts/bootstrap.mjs",
+    "smoke": "node infra/scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  }
+}

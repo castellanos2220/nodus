@@ -1,0 +1,16 @@
+{
+  "name": "@nodus/config",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Presets compartidos de TypeScript y ESLint",
+  "files": ["tsconfig.base.json", "eslint.node.mjs", "eslint.next.mjs"],
+  "exports": {
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./eslint.node": "./eslint.node.mjs",
+    "./eslint.next": "./eslint.next.mjs"
+  },
+  "scripts": {
+    "lint": "echo \"(config) sin fuentes que lintear\"",
+    "typecheck": "echo \"(config) sin fuentes que comprobar\""
+  }
+}

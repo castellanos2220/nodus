@@ -1,0 +1,1745 @@
+// ============================================================================
+//  NODUS — Esquema de datos
+//
+//  Principios que este esquema materializa:
+//   · Empresa Única – Casos Múltiples  (Company ← Case 1:N, con matching previo)
+//   · Consultor único                  (Consultant.code, nunca duplicado)
+//   · Gobierno de LOV                  (LookupList/LookupValue; nada de texto libre crítico)
+//   · Versionado sin sobrescritura     (ProposalVersion, DocumentVersion, DeliverableVersion)
+//   · Auditoría append-only            (AuditLog; el cliente Prisma bloquea update/delete)
+//   · SLA parametrizado                (SlaRule en BD, cero horas en código)
+//   · Un único responsable principal   (índice único parcial, ver migración 002)
+// ============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+//  ENUMS
+// ============================================================================
+
+enum RoleCode {
+  SUPER_ADMIN
+  ADVISORY
+  CONSULTOR
+  CONSULTOR_REVISOR
+  CLIENTE_MIPYME
+}
+
+enum UserStatus {
+  ACTIVO
+  INACTIVO
+  BLOQUEADO
+}
+
+enum CaseStatusCode {
+  CREADO
+  EN_REVISION
+  CLASIFICADO
+  EN_POSTULACION
+  ASIGNADO
+  PROPUESTA_EN_DISENO
+  PROPUESTA_LISTA_PARA_QA
+  PROPUESTA_ENVIADA
+  EN_DECISION_CLIENTE
+  AJUSTES_DE_PROPUESTA
+  PROPUESTA_ACEPTADA
+  PENDIENTE_CONTRATACION
+  AUTORIZADO_PARA_EJECUCION
+  EN_EJECUCION
+  LISTO_PARA_CIERRE
+  CERRADO
+  CERRADO_SIN_CONTRATACION
+}
+
+enum EligibilityResult {
+  ELEGIBLE
+  NO_ELEGIBLE
+  INFORMACION_INSUFICIENTE
+}
+
+enum ConsultantStatus {
+  REGISTRADO
+  EN_VALIDACION
+  HABILITADO
+  CONDICIONADO
+  SUSPENDIDO
+  INACTIVO
+}
+
+enum EngagementMode {
+  INDEPENDIENTE
+  SPONSOR
+  PROPIO
+}
+
+enum ConsultantTier {
+  VALIDADO
+  HABILITADO
+  PREMIUM
+  ESTRATEGICO
+}
+
+enum ApplicationStatus {
+  PRESENTADA
+  EN_EVALUACION
+  ACEPTADA
+  NO_SELECCIONADA
+  RETIRADA
+}
+
+enum ProposalVersionStatus {
+  BORRADOR
+  EN_QA
+  ENVIADA
+  ACEPTADA
+  SUPERADA
+  DESCARTADA
+}
+
+enum ReviewType {
+  METODOLOGICA
+  PEER
+}
+
+enum ReviewOutcome {
+  APROBADA
+  AJUSTES_SOLICITADOS
+  OBSERVACIONES
+}
+
+enum ClientDecisionType {
+  ACEPTAR
+  SOLICITAR_AJUSTES
+  NO_CONTINUAR
+}
+
+enum ChecklistItemStatus {
+  PENDIENTE
+  EN_PROCESO
+  CUMPLIDO
+  NO_APLICA
+}
+
+enum ActivityStatus {
+  NO_INICIADA
+  EN_CURSO
+  COMPLETADA
+  BLOQUEADA
+  REPROGRAMADA
+}
+
+enum MilestoneStatus {
+  PENDIENTE
+  EN_CURSO
+  CUMPLIDO
+  INCUMPLIDO
+  JUSTIFICADO
+  REPROGRAMADO
+}
+
+enum IncidentStatus {
+  ABIERTA
+  EN_ATENCION
+  ESCALADA
+  RESUELTA
+  CERRADA
+}
+
+enum ImpactLevel {
+  BAJO
+  MEDIO
+  ALTO
+  CRITICO
+}
+
+enum DeliverableStatus {
+  PENDIENTE
+  EN_DESARROLLO
+  CARGADO
+  EN_REVISION
+  AJUSTADO
+  LISTO_PARA_CIERRE
+}
+
+enum DocumentStage {
+  INTAKE
+  EVALUACION
+  POSTULACION
+  PROPUESTA
+  DECISION
+  CONTRATACION
+  EJECUCION
+  CIERRE
+}
+
+enum DocumentAccessLevel {
+  LECTURA
+  ESCRITURA
+}
+
+enum SlaStatus {
+  ON_TRACK
+  AT_RISK
+  OVERDUE
+  COMPLETED
+  CANCELLED
+}
+
+enum SlaAlertKind {
+  PREVENTIVA
+  VENCIMIENTO
+  ESCALAMIENTO
+}
+
+enum AuditOrigin {
+  USER
+  SYSTEM
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDIENTE
+  ENVIADA
+  FALLIDA
+  LEIDA
+}
+
+enum CommunicationType {
+  SOLICITUD_ACLARACION
+  SOLICITUD_INFORMACION
+  RESPUESTA
+  ACUERDO_OPERATIVO
+  OBSERVACION
+}
+
+enum CommunicationAudience {
+  CLIENTE
+  CONSULTOR
+  ADVISORY
+  INTERNO
+}
+
+enum MeetingType {
+  PRESENTACION_PROPUESTA
+  SEGUIMIENTO
+  CIERRE
+  OTRA
+}
+
+enum ClosureResponseType {
+  ACEPTACION
+  CIERRE_CON_OBSERVACIONES
+  SOLICITUD_AJUSTE_FINAL
+}
+
+enum ChecklistKind {
+  CONTRATACION // T7A
+  CIERRE // T9C
+}
+
+// ============================================================================
+//  GOBIERNO DE PLATAFORMA — LOV (RT-015 .. RT-017)
+// ============================================================================
+
+/// Lista de valores gobernada centralmente. Ninguna clasificación crítica del
+/// sistema usa texto libre: todas apuntan al `code` de un LookupValue.
+model LookupList {
+  id          String  @id @default(uuid()) @db.Uuid
+  code        String  @unique @db.VarChar(60)
+  name        String  @db.VarChar(140)
+  description String? @db.VarChar(500)
+  /// Las listas de sistema no pueden eliminarse desde la administración.
+  isSystem    Boolean @default(true)
+
+  values LookupValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("lookup_lists")
+}
+
+model LookupValue {
+  id          String  @id @default(uuid()) @db.Uuid
+  listId      String  @db.Uuid
+  code        String  @db.VarChar(60)
+  label       String  @db.VarChar(140)
+  description String? @db.VarChar(500)
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+  /// Metadatos libres: p. ej. `{ "rank": 3 }` para ordenar complejidades.
+  metadata    Json?
+
+  list LookupList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([listId, code])
+  @@index([listId, isActive, sortOrder])
+  @@map("lookup_values")
+}
+
+// ============================================================================
+//  IDENTIDAD Y RBAC
+// ============================================================================
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        RoleCode @unique
+  name        String   @db.VarChar(80)
+  description String?  @db.VarChar(400)
+
+  users       User[]
+  permissions RolePermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid()) @db.Uuid
+  code        String  @unique @db.VarChar(60)
+  module      String  @db.VarChar(40)
+  description String? @db.VarChar(400)
+
+  roles RolePermission[]
+
+  createdAt DateTime @default(now())
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id                 String     @id @default(uuid()) @db.Uuid
+  email              String     @unique @db.VarChar(180)
+  passwordHash       String     @db.VarChar(255)
+  fullName           String     @db.VarChar(140)
+  phone              String?    @db.VarChar(40)
+  roleId             String     @db.Uuid
+  status             UserStatus @default(ACTIVO)
+  mustChangePassword Boolean    @default(false)
+  lastLoginAt        DateTime?
+  failedLoginCount   Int        @default(0)
+  lockedUntil        DateTime?
+
+  /// Presente sólo para CLIENTE_MIPYME: acota su acceso a los casos de su empresa.
+  companyId String? @db.Uuid
+
+  role       Role           @relation(fields: [roleId], references: [id])
+  company    Company?       @relation(fields: [companyId], references: [id])
+  consultant Consultant?
+  contact    CompanyContact?
+
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]         @relation("NotificationRecipient")
+  createdCases         Case[]                 @relation("CaseCreatedBy")
+  classifications      CaseClassification[]
+  statusHistory        CaseStatusHistory[]
+  assignmentsMade      CaseAssignment[]       @relation("AssignmentAssignedBy")
+  applicationEvals     ApplicationEvaluation[]
+  proposalVersions     ProposalVersion[]
+  proposalReviews      ProposalReview[]
+  proposalAdjustments  ProposalAdjustment[]
+  customerDecisions    CustomerDecision[]
+  documentVersions     DocumentVersion[]
+  documentAccesses     DocumentAccess[]
+  contractEvidences    ContractEvidence[]
+  operationalFrames    OperationalFramework[]
+  incidents            Incident[]
+  deliverableVersions  DeliverableVersion[]
+  meetings             Meeting[]
+  communications       Communication[]
+  advisoryReviews      AdvisoryReview[]
+  closureDeclarations  ClosureDeclaration[]
+  closureResponses     CustomerClosureResponse[]
+  customerEvaluations  CustomerEvaluation[]
+  consultantEvaluations ConsultantEvaluation[]
+  consultantStatusLogs ConsultantStatusHistory[]
+  authorizedCases      Case[]                 @relation("CaseAuthorizedBy")
+  closedCases          Case[]                 @relation("CaseClosedBy")
+  slaEscalations       SlaEscalation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roleId])
+  @@index([companyId])
+  @@index([status])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  /// Se guarda el SHA-256 del token, nunca el token en claro.
+  tokenHash String    @unique @db.VarChar(64)
+  expiresAt DateTime
+  revokedAt DateTime?
+  /// Rotación: al refrescar, el token viejo apunta al nuevo. Reutilizar un token
+  /// ya rotado revoca toda la cadena (detección de robo de token).
+  replacedById String? @db.Uuid
+  userAgent String?   @db.VarChar(400)
+  ip        String?   @db.VarChar(64)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ============================================================================
+//  EMPRESA ÚNICA – CASOS MÚLTIPLES
+// ============================================================================
+
+model Company {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(20) // EMP-000001
+
+  name String @db.VarChar(180)
+  /// Nombre normalizado (sin tildes, sin sufijos societarios, minúsculas).
+  /// Es la columna sobre la que corre el matching por similitud de trigramas.
+  normalizedName String @db.VarChar(180)
+  taxId          String? @db.VarChar(40)
+  /// Dominio corporativo derivado del correo del contacto. Los dominios genéricos
+  /// (gmail, hotmail…) se guardan como NULL: no identifican a una organización.
+  emailDomain    String? @db.VarChar(120)
+
+  country    String  @db.VarChar(80)
+  city       String  @db.VarChar(80)
+  sectorCode String? @db.VarChar(60)
+  website    String? @db.VarChar(200)
+
+  acceptedTermsAt DateTime?
+
+  contacts  CompanyContact[]
+  cases     Case[]
+  users     User[]
+  documents Document[]
+  auditLogs AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([taxId])
+  @@index([emailDomain])
+  @@index([normalizedName])
+  @@index([createdAt])
+  @@map("companies")
+}
+
+model CompanyContact {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @db.Uuid
+  userId    String? @unique @db.Uuid
+
+  fullName String  @db.VarChar(140)
+  jobTitle String  @db.VarChar(120)
+  email    String  @db.VarChar(180)
+  phone    String  @db.VarChar(40)
+  isPrimary Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
+  cases   Case[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, email])
+  @@index([email])
+  @@index([companyId, isPrimary])
+  @@map("company_contacts")
+}
+
+// ============================================================================
+//  ECOSISTEMA DE CONSULTORES
+// ============================================================================
+
+model Sponsor {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(20) // SPO-000001
+
+  name        String  @db.VarChar(180)
+  taxId       String? @db.VarChar(40)
+  country     String  @db.VarChar(80)
+  city        String  @db.VarChar(80)
+  contactName String  @db.VarChar(140)
+  contactEmail String @db.VarChar(180)
+  isActive    Boolean @default(true)
+  /// El sponsor articula, NO sustituye la responsabilidad individual del consultor.
+  notes       String? @db.VarChar(1000)
+
+  consultants Consultant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sponsors")
+}
+
+model Consultant {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(20) // CON-000145
+  userId String @unique @db.Uuid
+
+  identityDocument    String  @db.VarChar(40)
+  phone               String  @db.VarChar(40)
+  country             String  @db.VarChar(80)
+  city                String  @db.VarChar(80)
+  professionalProfile String  @db.Text
+  yearsOfExperience   Int     @default(0)
+  certifications      String? @db.Text
+  availability        String  @db.VarChar(500)
+  cvDocumentId        String? @db.Uuid
+
+  status         ConsultantStatus @default(REGISTRADO)
+  engagementMode EngagementMode   @default(INDEPENDIENTE)
+  tier           ConsultantTier?
+  sponsorId      String?          @db.Uuid
+
+  experienceLevelCode String? @db.VarChar(60)
+  maxComplexityCode   String? @db.VarChar(60)
+
+  /// Debida diligencia (TC2)
+  dueDiligenceNotes    String?   @db.Text
+  dueDiligenceDecidedAt DateTime?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sponsor Sponsor? @relation(fields: [sponsorId], references: [id])
+
+  specialties   ConsultantSpecialty[]
+  scope         ConsultantScope?
+  statusHistory ConsultantStatusHistory[]
+  applications  Application[]
+  assignments   CaseAssignment[]
+  evaluations   ConsultantEvaluation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([identityDocument])
+  @@index([status])
+  @@index([status, maxComplexityCode])
+  @@index([sponsorId])
+  @@index([tier])
+  @@map("consultants")
+}
+
+model ConsultantSpecialty {
+  id           String @id @default(uuid()) @db.Uuid
+  consultantId String @db.Uuid
+
+  specialtyCode     String  @db.VarChar(60)
+  subSpecialtyCode  String? @db.VarChar(60)
+  yearsOfExperience Int     @default(0)
+  isPrimary         Boolean @default(false)
+
+  consultant Consultant @relation(fields: [consultantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([consultantId, specialtyCode, subSpecialtyCode])
+  @@index([specialtyCode])
+  @@map("consultant_specialties")
+}
+
+/// Alcance permitido del consultor dentro de la plataforma (TC3).
+/// Determina, en backend, qué puede ver, a qué puede postularse y qué rol puede asumir.
+model ConsultantScope {
+  id           String @id @default(uuid()) @db.Uuid
+  consultantId String @unique @db.Uuid
+
+  interventionTypeCodes String[] @default([])
+  sectorCodes           String[] @default([])
+  canBeLeadConsultant   Boolean  @default(true)
+  canBeSupport          Boolean  @default(true)
+  canBeReviewer         Boolean  @default(false)
+  canHandleSensitive    Boolean  @default(false)
+  notes                 String?  @db.VarChar(2000)
+
+  consultant Consultant @relation(fields: [consultantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("consultant_scopes")
+}
+
+model ConsultantStatusHistory {
+  id           String @id @default(uuid()) @db.Uuid
+  consultantId String @db.Uuid
+
+  previousStatus ConsultantStatus?
+  newStatus      ConsultantStatus
+  reason         String            @db.VarChar(2000)
+  changedById    String?           @db.Uuid
+
+  consultant Consultant @relation(fields: [consultantId], references: [id], onDelete: Cascade)
+  changedBy  User?      @relation(fields: [changedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([consultantId, createdAt])
+  @@map("consultant_status_history")
+}
+
+// ============================================================================
+//  CASO
+// ============================================================================
+
+/// Catálogo de metadatos de estado. La máquina de estados vive en código (cada
+/// estado necesita aristas declaradas); esta tabla gobierna etiqueta, orden,
+/// descripción y terminalidad, que sí son administrables sin desplegar.
+model CaseStatus {
+  id          String         @id @default(uuid()) @db.Uuid
+  code        CaseStatusCode @unique
+  label       String         @db.VarChar(80)
+  description String?        @db.VarChar(500)
+  sortOrder   Int            @default(0)
+  isTerminal  Boolean        @default(false)
+  colorToken  String?        @db.VarChar(40)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("case_statuses")
+}
+
+model Case {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(20) // CAS-000145
+
+  companyId String  @db.Uuid
+  contactId String? @db.Uuid
+  createdById String @db.Uuid
+
+  title       String @db.VarChar(180)
+  description String @db.Text
+
+  // --- Clasificación vigente (denormalizada desde CaseClassification para
+  // --- poder filtrar y agregar sin join; la historia completa vive en la tabla).
+  areaCode             String? @db.VarChar(60)
+  subAreaCode          String? @db.VarChar(60)
+  interventionTypeCode String? @db.VarChar(60)
+  complexityCode       String? @db.VarChar(60)
+  urgencyCode          String? @db.VarChar(60)
+  impactCode           String? @db.VarChar(60)
+
+  status CaseStatusCode @default(CREADO)
+
+  publishedAt        DateTime?
+  applicationDeadline DateTime?
+  authorizedAt       DateTime?
+  authorizedById     String?   @db.Uuid
+  executionStartedAt DateTime?
+  closedAt           DateTime?
+  closedById         String?   @db.Uuid
+  closureReason      String?   @db.VarChar(1000)
+  closureReasonCode  String?   @db.VarChar(60)
+  reactivationPotential String? @db.VarChar(20)
+  decisionOpenedAt   DateTime?
+
+  company      Company         @relation(fields: [companyId], references: [id])
+  contact      CompanyContact? @relation(fields: [contactId], references: [id])
+  createdBy    User            @relation("CaseCreatedBy", fields: [createdById], references: [id])
+  authorizedBy User?           @relation("CaseAuthorizedBy", fields: [authorizedById], references: [id])
+  closedBy     User?           @relation("CaseClosedBy", fields: [closedById], references: [id])
+
+  classifications CaseClassification[]
+  statusHistory   CaseStatusHistory[]
+  applications    Application[]
+  assignments     CaseAssignment[]
+  proposal        Proposal?
+  customerDecisions CustomerDecision[]
+  documents       Document[]
+  contractChecklist ContractChecklist?
+  closureChecklist  ClosureChecklist?
+  contractEvidences ContractEvidence[]
+  operationalFramework OperationalFramework?
+  activities      Activity[]
+  milestones      Milestone[]
+  incidents       Incident[]
+  deliverables    Deliverable[]
+  meetings        Meeting[]
+  communications  Communication[]
+  advisoryReviews AdvisoryReview[]
+  closureDeclaration ClosureDeclaration?
+  closureResponse    CustomerClosureResponse?
+  customerEvaluation CustomerEvaluation?
+  consultantEvaluations ConsultantEvaluation[]
+  slaInstances    SlaInstance[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Índices dictados por las consultas reales del producto:
+  @@index([companyId])
+  @@index([status])
+  @@index([createdAt])
+  // Tablero principal: casos por estado ordenados por antigüedad.
+  @@index([status, createdAt])
+  // Vista de cliente: "mis casos", por empresa y estado.
+  @@index([companyId, status])
+  // Bolsa interna: elegibilidad por área + complejidad sobre casos publicados.
+  @@index([status, areaCode, complexityCode])
+  @@map("cases")
+}
+
+/// T2 — evaluación, clasificación y habilitación. Append-only: cada reclasificación
+/// inserta una fila nueva y marca la anterior `isCurrent = false` (RF-025).
+model CaseClassification {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  areaCode             String @db.VarChar(60)
+  subAreaCode          String? @db.VarChar(60)
+  interventionTypeCode String @db.VarChar(60)
+  complexityCode       String @db.VarChar(60)
+  impactCode           String @db.VarChar(60)
+  urgencyCode          String @db.VarChar(60)
+
+  eligibility EligibilityResult
+  reviewNotes String            @db.Text
+  clarityScore      Int?
+  completenessScore Int?
+
+  classifiedById String?  @db.Uuid
+  isCurrent      Boolean  @default(true)
+  confirmedAt    DateTime?
+
+  case         Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  classifiedBy User? @relation(fields: [classifiedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId, isCurrent])
+  @@index([caseId, createdAt])
+  @@map("case_classifications")
+}
+
+model CaseStatusHistory {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  previousStatus CaseStatusCode?
+  newStatus      CaseStatusCode
+  transitionCode String          @db.VarChar(60)
+  note           String?         @db.VarChar(2000)
+  origin         AuditOrigin     @default(USER)
+  actorId        String?         @db.Uuid
+  /// Horas que el caso permaneció en el estado anterior. Alimenta los KPIs de
+  /// tiempo medio por etapa sin recalcular sobre toda la tabla en cada consulta.
+  hoursInPreviousStatus Decimal? @db.Decimal(12, 2)
+
+  case  Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  actor User? @relation(fields: [actorId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId, createdAt])
+  @@index([newStatus, createdAt])
+  @@map("case_status_history")
+}
+
+// ============================================================================
+//  BOLSA INTERNA, POSTULACIÓN Y ASIGNACIÓN
+// ============================================================================
+
+/// T3C — postulación estructurada del consultor.
+model Application {
+  id           String @id @default(uuid()) @db.Uuid
+  caseId       String @db.Uuid
+  consultantId String @db.Uuid
+
+  interestStatement   String @db.Text
+  availability        String @db.VarChar(500)
+  relevantExperience  String @db.Text
+  fitJustification    String @db.Text
+  preliminaryApproach String @db.Text
+  acceptsConditions   Boolean @default(false)
+
+  status ApplicationStatus @default(PRESENTADA)
+
+  case       Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  consultant Consultant @relation(fields: [consultantId], references: [id], onDelete: Cascade)
+  evaluation ApplicationEvaluation?
+  assignment CaseAssignment?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Un consultor se postula una sola vez a un caso.
+  @@unique([caseId, consultantId])
+  @@index([caseId])
+  @@index([consultantId])
+  @@index([caseId, status])
+  @@map("applications")
+}
+
+/// T3D — evaluación de postulaciones por advisory.
+model ApplicationEvaluation {
+  id            String @id @default(uuid()) @db.Uuid
+  applicationId String @unique @db.Uuid
+
+  specialtyFit    Int
+  experienceFit   Int
+  levelFit        Int
+  availabilityFit Int
+  trackRecordFit  Int
+  totalScore      Int
+  notes           String @db.Text
+
+  evaluatedById String? @db.Uuid
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  evaluatedBy User?       @relation(fields: [evaluatedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("application_evaluations")
+}
+
+/// Debe existir un único consultor responsable principal activo por caso.
+/// Además del check de aplicación, la migración 002 instala un índice único
+/// parcial: UNIQUE(caseId) WHERE isPrimary AND isActive.
+model CaseAssignment {
+  id            String  @id @default(uuid()) @db.Uuid
+  caseId        String  @db.Uuid
+  consultantId  String  @db.Uuid
+  applicationId String? @unique @db.Uuid
+
+  isPrimary Boolean @default(true)
+  isActive  Boolean @default(true)
+
+  assignedById      String? @db.Uuid
+  decisionRationale String  @db.Text
+  unassignedAt      DateTime?
+  unassignedReason  String? @db.VarChar(1000)
+
+  case        Case         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  consultant  Consultant   @relation(fields: [consultantId], references: [id])
+  application Application? @relation(fields: [applicationId], references: [id])
+  assignedBy  User?        @relation("AssignmentAssignedBy", fields: [assignedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId, isActive])
+  @@index([consultantId, isActive])
+  @@map("case_assignments")
+}
+
+// ============================================================================
+//  PROPUESTA
+// ============================================================================
+
+model Proposal {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @unique @db.Uuid
+
+  currentVersionNumber Int @default(0)
+
+  case        Case                 @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  versions    ProposalVersion[]
+  reviews     ProposalReview[]
+  adjustments ProposalAdjustment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("proposals")
+}
+
+/// Una versión congelada (`frozenAt != null`) es inmutable. El servicio rechaza
+/// cualquier escritura sobre ella; para cambiar algo hay que crear la versión n+1.
+model ProposalVersion {
+  id            String @id @default(uuid()) @db.Uuid
+  proposalId    String @db.Uuid
+  versionNumber Int
+
+  /// TP4B — análisis estructurado del caso.
+  analysis Json?
+  /// TP4C — bloques A–J de la propuesta estructurada.
+  content  Json?
+
+  status     ProposalVersionStatus @default(BORRADOR)
+  changeNote String?               @db.VarChar(1000)
+
+  createdById String?   @db.Uuid
+  frozenAt    DateTime?
+  sentAt      DateTime?
+  acceptedAt  DateTime?
+
+  proposal    Proposal             @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  createdBy   User?                @relation(fields: [createdById], references: [id])
+  reviews     ProposalReview[]
+  adjustments ProposalAdjustment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([proposalId, versionNumber])
+  @@index([proposalId, status])
+  @@map("proposal_versions")
+}
+
+/// TP4H (metodológica) y revisión experta independiente (peer).
+model ProposalReview {
+  id         String @id @default(uuid()) @db.Uuid
+  proposalId String @db.Uuid
+  versionId  String @db.Uuid
+
+  type         ReviewType
+  outcome      ReviewOutcome
+  checklist    Json
+  observations String? @db.Text
+
+  reviewerId String? @db.Uuid
+
+  proposal Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  version  ProposalVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  reviewer User?           @relation(fields: [reviewerId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([proposalId, createdAt])
+  @@index([versionId, type])
+  @@map("proposal_reviews")
+}
+
+/// TP6B (solicitud del cliente) + TP6C (respuesta del consultor).
+model ProposalAdjustment {
+  id         String @id @default(uuid()) @db.Uuid
+  proposalId String @db.Uuid
+  versionId  String @db.Uuid
+
+  details       String    @db.Text
+  requestedById String?   @db.Uuid
+  response      String?   @db.Text
+  respondedAt   DateTime?
+
+  proposal    Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  version     ProposalVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  requestedBy User?           @relation(fields: [requestedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([proposalId, createdAt])
+  @@map("proposal_adjustments")
+}
+
+/// TP6A / TP6D / TP6E — decisión formal del cliente sobre una versión concreta.
+model CustomerDecision {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  versionNumber         Int
+  decision              ClientDecisionType
+  comments              String?            @db.Text
+  adjustmentDetails     String?            @db.Text
+  declineReasonCode     String?            @db.VarChar(60)
+  reactivationPotential String?            @db.VarChar(20)
+
+  decidedById String? @db.Uuid
+
+  case      Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  decidedBy User? @relation(fields: [decidedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId, createdAt])
+  @@map("customer_decisions")
+}
+
+// ============================================================================
+//  DOCUMENTOS
+// ============================================================================
+
+model Document {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @db.Uuid
+  caseId    String? @db.Uuid
+
+  stage DocumentStage
+  type  String        @db.VarChar(60)
+  name  String        @db.VarChar(240)
+
+  currentVersion Int     @default(0)
+  isArchived     Boolean @default(false)
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  case     Case?             @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  versions DocumentVersion[]
+  accesses DocumentAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId])
+  @@index([companyId])
+  @@index([caseId, stage])
+  @@map("documents")
+}
+
+/// Cada carga crea una versión nueva. La clave de storage incluye la versión,
+/// de modo que un objeto del bucket nunca se sobrescribe.
+model DocumentVersion {
+  id            String @id @default(uuid()) @db.Uuid
+  documentId    String @db.Uuid
+  versionNumber Int
+
+  fileName   String @db.VarChar(255)
+  mimeType   String @db.VarChar(160)
+  sizeBytes  Int
+  checksum   String @db.VarChar(64)
+  storageKey String @unique @db.VarChar(600)
+
+  uploadedById String? @db.Uuid
+  notes        String? @db.VarChar(1000)
+
+  document   Document             @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  uploadedBy User?                @relation(fields: [uploadedById], references: [id])
+  deliverableVersions DeliverableVersion[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([documentId, versionNumber])
+  @@map("document_versions")
+}
+
+/// Permiso explícito de acceso a un documento, por encima del RBAC de rol.
+model DocumentAccess {
+  id         String              @id @default(uuid()) @db.Uuid
+  documentId String              @db.Uuid
+  userId     String              @db.Uuid
+  level      DocumentAccessLevel @default(LECTURA)
+  grantedAt  DateTime            @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, userId])
+  @@index([userId])
+  @@map("document_accesses")
+}
+
+// ============================================================================
+//  CONTRATACIÓN (veeduría — NODUS no es parte contractual)
+// ============================================================================
+
+/// Plantilla de checklist administrable (T7A y T9C). Instanciar desde plantilla
+/// permite cambiar el checklist sin migración ni redeploy.
+model ChecklistTemplate {
+  id       String        @id @default(uuid()) @db.Uuid
+  kind     ChecklistKind
+  code     String        @unique @db.VarChar(60)
+  name     String        @db.VarChar(180)
+  isActive Boolean       @default(true)
+
+  items ChecklistTemplateItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, isActive])
+  @@map("checklist_templates")
+}
+
+model ChecklistTemplateItem {
+  id         String @id @default(uuid()) @db.Uuid
+  templateId String @db.Uuid
+
+  label             String  @db.VarChar(240)
+  description       String? @db.VarChar(1000)
+  defaultResponsible String? @db.VarChar(140)
+  isRequired        Boolean @default(true)
+  requiresEvidence  Boolean @default(false)
+  sortOrder         Int     @default(0)
+
+  template ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, sortOrder])
+  @@map("checklist_template_items")
+}
+
+model ContractChecklist {
+  id         String  @id @default(uuid()) @db.Uuid
+  caseId     String  @unique @db.Uuid
+  templateCode String @db.VarChar(60)
+
+  completedAt DateTime?
+
+  case  Case                    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  items ContractChecklistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("contract_checklists")
+}
+
+model ContractChecklistItem {
+  id          String @id @default(uuid()) @db.Uuid
+  checklistId String @db.Uuid
+
+  label            String              @db.VarChar(240)
+  description      String?             @db.VarChar(1000)
+  responsible      String?             @db.VarChar(140)
+  isRequired       Boolean             @default(true)
+  requiresEvidence Boolean             @default(false)
+  sortOrder        Int                 @default(0)
+  status           ChecklistItemStatus @default(PENDIENTE)
+  targetDate       DateTime?
+  completedDate    DateTime?
+  notes            String?             @db.VarChar(2000)
+
+  checklist ContractChecklist  @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  evidences ContractEvidence[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([checklistId, sortOrder])
+  @@index([checklistId, status])
+  @@map("contract_checklist_items")
+}
+
+/// T7C — evidencia contractual. NODUS asocia el soporte, no asume su contenido legal.
+model ContractEvidence {
+  id     String  @id @default(uuid()) @db.Uuid
+  caseId String  @db.Uuid
+  itemId String? @db.Uuid
+
+  title       String  @db.VarChar(240)
+  description String? @db.VarChar(1000)
+  documentId  String? @db.Uuid
+
+  registeredById String? @db.Uuid
+
+  case         Case                   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  item         ContractChecklistItem? @relation(fields: [itemId], references: [id])
+  registeredBy User?                  @relation(fields: [registeredById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId])
+  @@map("contract_evidences")
+}
+
+/// T7B — marco operativo del servicio formalizado. Base de seguimiento de la ejecución.
+model OperationalFramework {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @unique @db.Uuid
+
+  operatingConditions   String @db.Text
+  estimatedDurationDays Int
+  baselineSchedule      String @db.Text
+  committedDeliverables String @db.Text
+  clientDependencies    String @db.Text
+  assumptions           String @db.Text
+  executionConstraints  String? @db.Text
+  primaryContact        String @db.VarChar(140)
+
+  uploadedById String? @db.Uuid
+
+  case       Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  uploadedBy User? @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("operational_frameworks")
+}
+
+// ============================================================================
+//  EJECUCIÓN
+// ============================================================================
+
+model Activity {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  name        String  @db.VarChar(180)
+  description String? @db.Text
+  responsible String  @db.VarChar(140)
+  targetDate  DateTime
+  status      ActivityStatus @default(NO_INICIADA)
+  notes       String? @db.VarChar(2000)
+  evidenceDocumentId String? @db.Uuid
+  completedAt DateTime?
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId, status])
+  @@index([caseId, targetDate])
+  @@map("activities")
+}
+
+model Milestone {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  name           String  @db.VarChar(180)
+  description    String? @db.Text
+  responsible    String  @db.VarChar(140)
+  targetDate     DateTime
+  criticality    ImpactLevel     @default(MEDIO)
+  status         MilestoneStatus @default(PENDIENTE)
+  expectedResult String?         @db.VarChar(2000)
+  justification  String?         @db.VarChar(2000)
+  completedAt    DateTime?
+  /// Marca puesta por el worker de SLA cuando emite la alerta preventiva,
+  /// para no re-notificar el mismo hito en cada pasada.
+  atRiskNotifiedAt  DateTime?
+  overdueNotifiedAt DateTime?
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId, status])
+  // El worker barre hitos vencidos: (status, targetDate) es el índice que usa.
+  @@index([status, targetDate])
+  @@map("milestones")
+}
+
+model Incident {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  typeCode        String         @db.VarChar(60)
+  title           String         @db.VarChar(180)
+  description     String         @db.Text
+  impact          ImpactLevel
+  suggestedAction String         @db.Text
+  status          IncidentStatus @default(ABIERTA)
+  decision        String?        @db.Text
+  stage           DocumentStage  @default(EJECUCION)
+
+  reportedById String?   @db.Uuid
+  resolvedAt   DateTime?
+
+  case       Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  reportedBy User? @relation(fields: [reportedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId, status])
+  @@index([status, impact])
+  @@map("incidents")
+}
+
+model Deliverable {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  name        String  @db.VarChar(180)
+  description String? @db.Text
+  typeCode    String? @db.VarChar(60)
+  responsible String  @db.VarChar(140)
+  targetDate  DateTime
+  status      DeliverableStatus @default(PENDIENTE)
+  notes       String? @db.VarChar(2000)
+  currentVersion Int @default(0)
+
+  case     Case                 @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  versions DeliverableVersion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId, status])
+  @@map("deliverables")
+}
+
+/// Versionamiento obligatorio de entregables (§24). Nunca se sobrescribe.
+model DeliverableVersion {
+  id            String @id @default(uuid()) @db.Uuid
+  deliverableId String @db.Uuid
+  versionNumber Int
+
+  documentVersionId String? @db.Uuid
+  notes             String? @db.VarChar(2000)
+  uploadedById      String? @db.Uuid
+
+  deliverable     Deliverable      @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  documentVersion DocumentVersion? @relation(fields: [documentVersionId], references: [id])
+  uploadedBy      User?            @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([deliverableId, versionNumber])
+  @@map("deliverable_versions")
+}
+
+// ============================================================================
+//  COMUNICACIONES
+// ============================================================================
+
+/// T8E / reunión de presentación de propuesta / T9E reunión de cierre.
+model Meeting {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  title           String      @db.VarChar(180)
+  type            MeetingType
+  heldAt          DateTime
+  durationMinutes Int
+  participants    String      @db.Text
+  topics          String      @db.Text
+  conclusions     String      @db.Text
+  commitments     String?     @db.Text
+
+  registeredById String? @db.Uuid
+
+  case         Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  registeredBy User? @relation(fields: [registeredById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId, heldAt])
+  @@map("meetings")
+}
+
+/// T3A / T3B / TP4A / T8F — interacción estructurada. No hay canal directo
+/// consultor↔Mipyme fuera de la plataforma.
+model Communication {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  type     CommunicationType
+  stage    DocumentStage
+  audience CommunicationAudience
+  subject  String                @db.VarChar(180)
+  body     String                @db.Text
+
+  parentId   String?   @db.Uuid
+  answeredAt DateTime?
+
+  createdById String? @db.Uuid
+
+  case      Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  createdBy User?           @relation(fields: [createdById], references: [id])
+  parent    Communication?  @relation("CommunicationThread", fields: [parentId], references: [id])
+  replies   Communication[] @relation("CommunicationThread")
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId, createdAt])
+  @@map("communications")
+}
+
+/// T8H — seguimiento ejecutivo de cumplimiento por parte de advisory.
+model AdvisoryReview {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+
+  findings     String  @db.Text
+  actionsTaken String? @db.Text
+  riskLevel    ImpactLevel @default(BAJO)
+
+  reviewedById String? @db.Uuid
+
+  case       Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation(fields: [reviewedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId, createdAt])
+  @@map("advisory_reviews")
+}
+
+// ============================================================================
+//  CIERRE
+// ============================================================================
+
+/// T9A — declaración de cierre técnico del consultor.
+model ClosureDeclaration {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @unique @db.Uuid
+
+  statement  String  @db.Text
+  finalNotes String? @db.Text
+
+  declaredById String? @db.Uuid
+  revokedAt    DateTime?
+  revokeReason String?  @db.VarChar(1000)
+
+  case       Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  declaredBy User? @relation(fields: [declaredById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("closure_declarations")
+}
+
+/// T9C — checklist de revisión final de cumplimiento.
+model ClosureChecklist {
+  id           String @id @default(uuid()) @db.Uuid
+  caseId       String @unique @db.Uuid
+  templateCode String @db.VarChar(60)
+
+  completedAt DateTime?
+
+  case  Case                   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  items ClosureChecklistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("closure_checklists")
+}
+
+model ClosureChecklistItem {
+  id          String @id @default(uuid()) @db.Uuid
+  checklistId String @db.Uuid
+
+  label      String              @db.VarChar(240)
+  isRequired Boolean             @default(true)
+  sortOrder  Int                 @default(0)
+  status     ChecklistItemStatus @default(PENDIENTE)
+  notes      String?             @db.VarChar(2000)
+
+  checklist ClosureChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([checklistId, sortOrder])
+  @@map("closure_checklist_items")
+}
+
+/// T9F — aceptación u observaciones de cierre del cliente.
+model CustomerClosureResponse {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @unique @db.Uuid
+
+  response     ClosureResponseType
+  observations String?             @db.Text
+
+  respondedById String? @db.Uuid
+
+  case        Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  respondedBy User? @relation(fields: [respondedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("customer_closure_responses")
+}
+
+/// T9G — encuesta de satisfacción del cliente.
+model CustomerEvaluation {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @unique @db.Uuid
+
+  overallSatisfaction   Int
+  serviceClarity        Int
+  expectationFulfilment Int
+  perceivedValue        Int
+  wouldReuse            Boolean
+  comments              String? @db.Text
+
+  submittedById String? @db.Uuid
+
+  case        Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  submittedBy User? @relation(fields: [submittedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("customer_evaluations")
+}
+
+/// T9H — evaluación de desempeño del consultor por caso.
+/// Es la base de datos del futuro sistema de reputación: se captura, no se explota.
+model ConsultantEvaluation {
+  id           String @id @default(uuid()) @db.Uuid
+  caseId       String @db.Uuid
+  consultantId String @db.Uuid
+
+  scopeCompliance    Int
+  timeCompliance     Int
+  documentationOrder Int
+  processConsistency Int
+  qaOutcome          Int
+  /// Media simple de los cinco criterios, materializada para evitar recalcular
+  /// en cada consulta del historial del consultor.
+  overallScore       Decimal @db.Decimal(4, 2)
+  /// Complejidad del caso atendido, congelada en el momento de la evaluación.
+  caseComplexityCode String? @db.VarChar(60)
+  comments           String? @db.Text
+
+  evaluatedById String? @db.Uuid
+
+  case        Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  consultant  Consultant @relation(fields: [consultantId], references: [id], onDelete: Cascade)
+  evaluatedBy User?      @relation(fields: [evaluatedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([caseId, consultantId])
+  @@index([consultantId, createdAt])
+  @@map("consultant_evaluations")
+}
+
+// ============================================================================
+//  SLA  (parametrizado: cero horas escritas en código)
+// ============================================================================
+
+model SlaRule {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(80)
+  name String @db.VarChar(180)
+
+  /// Etapa del proceso a la que aplica (coincide con el estado de origen).
+  stage                   String @db.VarChar(60)
+  durationHours           Int
+  warningThresholdPercent Int    @default(75)
+  escalationAfterHours    Int?
+
+  // Dimensiones opcionales. La resolución elige la regla activa del `stage` con
+  // MÁS dimensiones coincidentes (la más específica gana).
+  complexityCode       String? @db.VarChar(60)
+  interventionTypeCode String? @db.VarChar(60)
+  consultantLevelCode  String? @db.VarChar(60)
+  clientSegmentCode    String? @db.VarChar(60)
+  priorityCode         String? @db.VarChar(60)
+
+  isActive Boolean @default(true)
+
+  instances SlaInstance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([stage, isActive])
+  @@map("sla_rules")
+}
+
+model SlaInstance {
+  id     String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+  ruleId String @db.Uuid
+
+  stage       String    @db.VarChar(60)
+  startedAt   DateTime
+  deadline    DateTime
+  completedAt DateTime?
+  status      SlaStatus @default(ON_TRACK)
+
+  /// Consumo en porcentaje, recalculado por el worker. Materializado para poder
+  /// filtrar y ordenar por riesgo sin calcularlo en cada fila del tablero.
+  percentConsumed Decimal @default(0) @db.Decimal(6, 2)
+
+  case  Case    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  rule  SlaRule @relation(fields: [ruleId], references: [id])
+  alerts SlaAlert[]
+  escalations SlaEscalation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId])
+  @@index([status])
+  // Barrido del worker: instancias abiertas ordenadas por vencimiento.
+  @@index([status, deadline])
+  @@index([caseId, stage, status])
+  @@map("sla_instances")
+}
+
+model SlaAlert {
+  id         String @id @default(uuid()) @db.Uuid
+  instanceId String @db.Uuid
+
+  kind    SlaAlertKind
+  message String       @db.VarChar(600)
+  percentAtAlert Decimal @db.Decimal(6, 2)
+
+  instance SlaInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  /// Idempotencia: una sola alerta de cada tipo por instancia.
+  @@unique([instanceId, kind])
+  @@index([createdAt])
+  @@map("sla_alerts")
+}
+
+model SlaEscalation {
+  id         String @id @default(uuid()) @db.Uuid
+  instanceId String @db.Uuid
+
+  level        Int     @default(1)
+  reason       String  @db.VarChar(600)
+  escalatedToId String? @db.Uuid
+  resolvedAt   DateTime?
+
+  instance    SlaInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  escalatedTo User?       @relation(fields: [escalatedToId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([instanceId])
+  @@map("sla_escalations")
+}
+
+// ============================================================================
+//  NOTIFICACIONES  (TCOM1 – TCOM12, parametrizables)
+// ============================================================================
+
+model NotificationTemplate {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(20) // TCOM1..TCOM12
+  name String @db.VarChar(180)
+
+  /// Evento de dominio que la dispara.
+  eventName String @db.VarChar(80)
+  /// Roles destinatarios por defecto; el RecipientResolver los concreta a usuarios.
+  audiences String[] @default([])
+
+  subjectTemplate String @db.VarChar(300)
+  bodyTemplate    String @db.Text
+  channel         NotificationChannel @default(EMAIL)
+  isActive        Boolean @default(true)
+
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([eventName, isActive])
+  @@map("notification_templates")
+}
+
+model Notification {
+  id          String  @id @default(uuid()) @db.Uuid
+  templateId  String? @db.Uuid
+  recipientId String  @db.Uuid
+  caseId      String? @db.Uuid
+
+  eventName String              @db.VarChar(80)
+  channel   NotificationChannel
+  status    NotificationStatus  @default(PENDIENTE)
+  subject   String              @db.VarChar(300)
+  body      String              @db.Text
+
+  sentAt  DateTime?
+  readAt  DateTime?
+  error   String?   @db.VarChar(1000)
+  attempts Int      @default(0)
+
+  template  NotificationTemplate? @relation(fields: [templateId], references: [id])
+  recipient User                  @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  case      Case?                 @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([recipientId])
+  // Campanita: no leídas del usuario, más recientes primero.
+  @@index([recipientId, status, createdAt])
+  @@index([caseId])
+  @@index([status, createdAt])
+  @@map("notifications")
+}
+
+// ============================================================================
+//  BITÁCORA DE AUDITORÍA  (append-only)
+// ============================================================================
+
+/// Los registros no pueden eliminarse ni modificarse desde la aplicación.
+/// `PrismaService` instala una extensión que lanza si alguien intenta
+/// update/delete/upsert sobre este modelo, y la migración 003 revoca
+/// UPDATE/DELETE al rol de aplicación en PostgreSQL.
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  actorId   String?   @db.Uuid
+  actorRole RoleCode?
+  action    String    @db.VarChar(80)
+  entity    String    @db.VarChar(80)
+  entityId  String?   @db.VarChar(64)
+
+  caseId    String? @db.Uuid
+  companyId String? @db.Uuid
+
+  previousValue Json?
+  newValue      Json?
+  origin        AuditOrigin @default(USER)
+
+  ip        String? @db.VarChar(64)
+  userAgent String? @db.VarChar(400)
+  requestId String? @db.VarChar(64)
+  metadata  Json?
+
+  actor   User?    @relation(fields: [actorId], references: [id])
+  case    Case?    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  // Los cinco filtros exigidos por RT-005 / §26, cada uno con su índice:
+  @@index([caseId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
+
+// ============================================================================
+//  CONTADORES DE CÓDIGO  (IDs legibles: EMP-000001, CAS-000145, CON-000023)
+// ============================================================================
+
+/// Secuencia transaccional para códigos legibles por humanos. Se actualiza con
+/// UPDATE ... RETURNING dentro de la misma transacción que crea la entidad, lo que
+/// evita huecos por rollback y carreras entre peticiones concurrentes.
+model CodeSequence {
+  prefix String @id @db.VarChar(10)
+  value  Int    @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("code_sequences")
+}

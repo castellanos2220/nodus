@@ -1,0 +1,49 @@
+# ==============================================================================
+# Lo que NUNCA debe entrar en el contexto de build.
+#
+# `node_modules` es el importante: pnpm lo construye con enlaces simbólicos hacia
+# el almacén de la raíz, y copiarlo desde el host —además de multiplicar por diez
+# el contexto— sobrescribe el árbol que la etapa `deps` instaló correctamente
+# para Linux, dejando enlaces rotos.
+# ==============================================================================
+
+**/node_modules
+**/.pnpm-store
+
+# Artefactos de build
+**/dist
+**/build
+**/.next
+**/out
+**/*.tsbuildinfo
+
+# Secretos y entorno local
+.env
+.env.*
+!.env.example
+
+# Pruebas y cobertura
+**/coverage
+**/.nyc_output
+**/test-results
+**/playwright-report
+
+# Control de versiones y editores
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Documentación y scripts que la imagen no necesita
+docs
+README.md
+**/*.md
+!apps/**/*.md
+
+# Logs y temporales
+**/*.log
+**/tmp
+**/temp
+**/.cache
+**/.DS_Store
