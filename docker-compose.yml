@@ -1,18 +1,10 @@
 name: nodus
 
-# ==============================================================================
-# NODUS — entorno de desarrollo reproducible.
-#
-# Objetivo (brief §5): que el evaluador no tenga que instalar PostgreSQL, Redis,
-# MinIO ni un servidor SMTP a mano. Docker aquí es reproducibilidad, no una
-# optimización de rendimiento.
-#
 #   docker compose up -d                 # sólo infraestructura + api + web + worker
-#   docker compose up -d postgres redis minio mailpit   # sólo infra (dev híbrido)
-# ==============================================================================
+#   docker compose up -d postgres redis minio mailpit   # sólo infraestructura 
 
 services:
-  # --------------------------------------------------------------- PostgreSQL --
+  
   postgres:
     image: postgres:16-alpine
     container_name: nodus-postgres
