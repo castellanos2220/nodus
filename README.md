@@ -5,7 +5,7 @@ atención de casos entre Mipymes y consultores, desde el registro de una necesid
 hasta el cierre formal con evaluación.
 
 No es una maqueta. Todo lo que se ve en la interfaz está respaldado por
-persistencia real, permisos verificados en backend, reglas de negocio que
+persistencia real y aplicada, permisos verificados en backend, reglas de negocio que
 bloquean de verdad y una bitácora que no se puede alterar.
 
 ---
