@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { forwardedHeaders } from '@/lib/forwarding';
 import {
   REFRESH_COOKIE,
   SESSION_COOKIE,
@@ -30,12 +31,10 @@ async function handle(request: Request, path: string[]): Promise<NextResponse> {
   const target = `${apiBaseUrl()}/${path.join('/')}${url.search}`;
 
   const body =
-    request.method === 'GET' || request.method === 'HEAD'
-      ? undefined
-      : await request.arrayBuffer();
+    request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
 
   const forward = async (accessToken: string): Promise<Response> => {
-    const headers = new Headers();
+    const headers = new Headers(forwardedHeaders(request.headers));
     const contentType = request.headers.get('content-type');
     if (contentType) headers.set('content-type', contentType);
     headers.set('authorization', `Bearer ${accessToken}`);
@@ -63,7 +62,7 @@ async function handle(request: Request, path: string[]): Promise<NextResponse> {
   if (apiResponse.status === 401) {
     const refresh = await fetch(`${apiBaseUrl()}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...forwardedHeaders(request.headers) },
       body: JSON.stringify({ refreshToken: session.refreshToken }),
       cache: 'no-store',
     });

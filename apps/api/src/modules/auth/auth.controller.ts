@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { RatePolicy, RateLimitPolicy } from '../../core/rate-limit';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { actorFrom } from '../../core/audit/audit.service';
@@ -20,7 +21,7 @@ export class AuthController {
   @Post('login')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @Throttle({ auth: { limit: 10, ttl: 300_000 } })
+  @RatePolicy(RateLimitPolicy.AUTH)
   @ApiOperation({ summary: 'Iniciar sesión' })
   @ApiResponse({ status: 200, description: 'Tokens emitidos' })
   @ApiResponse({ status: 401, description: 'Credenciales inválidas o cuenta bloqueada' })
@@ -36,7 +37,9 @@ export class AuthController {
   @Post('refresh')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @Throttle({ auth: { limit: 30, ttl: 300_000 } })
+  // El proxy rota el token de forma transparente: más margen que el login.
+  @RatePolicy(RateLimitPolicy.AUTH)
+  @Throttle({ auth: { limit: 60, ttl: 300_000 } })
   @ApiOperation({
     summary: 'Renovar el access token',
     description:
@@ -74,6 +77,7 @@ export class AuthController {
   }
 
   @Post('change-password')
+  @RatePolicy(RateLimitPolicy.AUTH)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({

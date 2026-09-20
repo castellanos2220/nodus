@@ -8,10 +8,10 @@ export default function ConsultantsPage() {
   return (
     <>
       <PageHeader
-        title="Ecosistema de consultores"
+        title="Consultores"
         description={
           'Pool curado: ningún profesional participa sin pasar por registro, debida diligencia, ' +
-          'clasificación y habilitación. Sólo el estado HABILITADO permite ver oportunidades, ' +
+          'clasificación y habilitación. Sólo el estado Habilitado permite ver oportunidades, ' +
           'postularse y ser asignado.'
         }
       />

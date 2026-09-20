@@ -8,7 +8,7 @@ export default function ProposalsPage() {
   return (
     <>
       <PageHeader
-        title="Revisión metodológica de propuestas"
+        title="QA de propuestas"
         description={
           'Bandeja de propuestas congeladas a la espera de QA. Sin una revisión metodológica ' +
           'aprobada (TP4H), la propuesta no puede enviarse al cliente.'

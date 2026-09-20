@@ -10,6 +10,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { RatePolicy, RateLimitPolicy } from '../../core/rate-limit';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { actorFrom, SYSTEM_ACTOR } from '../../core/audit/audit.service';
@@ -33,7 +34,9 @@ export class CasesController {
    */
   @Post('intake')
   @Public()
-  @Throttle({ auth: { limit: 5, ttl: 600_000 } })
+  // Crea empresa, usuario y caso sin sesión: el cupo público más estricto.
+  @RatePolicy(RateLimitPolicy.PUBLIC)
+  @Throttle({ public: { limit: 5, ttl: 600_000 } })
   @ApiOperation({
     summary: 'Onboarding T1: crear empresa (si no existe), contacto, usuario y caso',
     description:

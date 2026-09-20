@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ROLE_LABEL } from '@nodus/types';
+import { ArrowRight } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
+import { Button } from '@/components/ui/button';
 import { DashboardView } from '@/features/dashboard/dashboard-view';
 import { currentUser } from '@/lib/session';
 
@@ -15,6 +18,13 @@ const DESCRIPTIONS: Record<string, string> = {
   CLIENTE_MIPYME: 'Estado de los casos de su empresa dentro de la plataforma.',
 };
 
+const TODAY = new Intl.DateTimeFormat('es-CO', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  timeZone: 'America/Bogota',
+});
+
 export default async function DashboardPage() {
   const user = await currentUser();
   if (!user) redirect('/login');
@@ -22,8 +32,16 @@ export default async function DashboardPage() {
   return (
     <>
       <PageHeader
+        eyebrow={TODAY.format(new Date())}
         title={`Hola, ${user.fullName.split(' ')[0]}`}
         description={DESCRIPTIONS[user.role] ?? ROLE_LABEL[user.role]}
+        actions={
+          <Button variant="secondary" asChild>
+            <Link href="/cases">
+              Ir a casos <ArrowRight />
+            </Link>
+          </Button>
+        }
       />
       <DashboardView role={user.role} />
     </>

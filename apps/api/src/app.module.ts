@@ -2,8 +2,9 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 
+import { ALL_RATE_LIMIT_POLICIES, RateLimitGuard } from './core/rate-limit';
 import { AuditCoreModule } from './core/audit/audit.module';
 import { CoreAuthModule } from './core/auth/core-auth.module';
 import { JwtAuthGuard } from './core/auth/guards/jwt-auth.guard';
@@ -66,15 +67,14 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService<AppConfig, true>) => {
         const throttle = config.get('throttle', { infer: true });
+        // Un throttler con nombre por política; `RateLimitGuard` hace que cada
+        // ruta consuma sólo el de su política (ver core/rate-limit y ADR-009).
         return {
-          throttlers: [
-            { name: 'default', ttl: throttle.ttlSeconds * 1000, limit: throttle.limit },
-            {
-              name: 'auth',
-              ttl: throttle.authTtlSeconds * 1000,
-              limit: throttle.authLimit,
-            },
-          ],
+          throttlers: ALL_RATE_LIMIT_POLICIES.map((policy) => ({
+            name: policy,
+            ttl: throttle[policy].ttlSeconds * 1000,
+            limit: throttle[policy].limit,
+          })),
         };
       },
     }),
@@ -103,7 +103,7 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
   providers: [
     // El orden importa: autenticar → limitar tasa → autorizar por permiso.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: RequestContextInterceptor },

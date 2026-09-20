@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MotionConfig } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { ApiError } from '@/lib/api';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 /**
  * TanStack Query es el **único** almacén de estado de servidor de la aplicación.
@@ -36,12 +38,26 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={client}>
-      {children}
+      {/* Respeta `prefers-reduced-motion`: sin animaciones si el sistema lo pide. */}
+      <MotionConfig reducedMotion="user">
+        <TooltipProvider>{children}</TooltipProvider>
+      </MotionConfig>
+      {/* Toasts neutros: el icono lleva el significado, no un fondo de color. */}
       <Toaster
         position="bottom-right"
-        richColors
         closeButton
-        toastOptions={{ className: 'text-sm' }}
+        toastOptions={{
+          classNames: {
+            toast:
+              'group !rounded-md !border !border-border !bg-card !text-foreground !shadow-pop !font-sans',
+            title: '!text-body !font-medium',
+            description: '!text-body-sm !text-muted-foreground',
+            success: '[&_[data-icon]]:!text-success',
+            error: '[&_[data-icon]]:!text-danger',
+            warning: '[&_[data-icon]]:!text-warning',
+            closeButton: '!border-border !bg-card !text-muted-foreground',
+          },
+        }}
       />
     </QueryClientProvider>
   );

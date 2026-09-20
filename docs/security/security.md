@@ -175,9 +175,9 @@ integración que lo verifican escribiendo con Prisma directamente.
 |---|---|
 | **Helmet** | Cabeceras de seguridad estándar; CSP activa en producción |
 | **CORS** | Lista explícita de orígenes desde `CORS_ORIGINS`, con credenciales |
-| **Rate limiting** | 120/min global; 10/5 min en login; 5/10 min en el intake público |
+| **Rate limiting** | Una política por tipo de ruta: login 10/5 min por IP y cuenta; públicos 30/min e intake 5/10 min por IP; escrituras 120/min y lecturas 1200/min por usuario; sondas de salud aparte ([ADR-009](../adr/ADR-009-rate-limiting.md)) |
 | **Límite de cuerpo** | 2 MB JSON |
-| **`trust proxy`** | Para obtener la IP real tras un proxy (rate limit y auditoría) |
+| **`trust proxy`** | Sólo saltos de red privada (`TRUST_PROXY`); el proxy de Next reenvía `X-Forwarded-For` para que límite de tasa y auditoría vean la IP real |
 | **Cabeceras del frontend** | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy` |
 | **Errores normalizados** | Forma estable con código; los errores de Prisma se traducen y nunca se filtran nombres de constraints ni volcados |
 

@@ -2,54 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * NODUS — design tokens.
+ *
+ * Única fuente de verdad del color, el radio y la superficie. Los componentes
+ * nunca usan un hex ni la paleta por defecto de Tailwind: usan estos tokens a
+ * través de `tailwind.config.ts`. Reglas de uso en docs/architecture/ui-redesign.md.
+ *
+ * Formato: canales HSL sin `hsl()`, para que Tailwind pueda aplicar opacidad
+ * (`bg-brand/10`).
+ */
 @layer base {
   :root {
-    /* Pila del sistema: sin descarga de fuentes, sin dependencia de red en el build. */
-    --font-sans:
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Segoe UI Variable Text', Roboto,
-      'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+    /* ---------------------------------------------------------- Neutros -- */
+    --background: 60 9% 98%; /* #FAFAF9 — lienzo, blanco cálido */
+    --card: 0 0% 100%; /* #FFFFFF — tarjetas, tablas, diálogos */
+    --muted: 60 8% 95%; /* #F4F4F2 — hover, pistas, fondos sutiles */
+    --border: 60 6% 90%; /* #E6E6E2 — bordes de paneles */
+    --border-subtle: 60 8% 93%; /* #EFEFEB — separadores entre filas */
+    --border-strong: 60 5% 82%; /* #D4D4CF — bordes de controles */
 
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --foreground: 0 0% 7%; /* #121212 — tinta: títulos, cifras */
+    --ink-2: 218 6% 24%; /* #3A3D42 — grafito: cuerpo secundario */
+    --muted-foreground: 218 4% 43%; /* #6B6E73 — etiquetas, metadatos */
+    --subtle-foreground: 220 4% 62%; /* #9A9DA3 — placeholders, iconos inactivos */
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    /* ------------------------------------------------------------ Marca -- */
+    --brand: 178 90% 37%; /* #09B3AE — acción, selección, foco, progreso */
+    --brand-strong: 178 90% 26%; /* #07807C — texto/enlace de marca (4.8:1) */
+    --brand-soft: 176 47% 93%; /* #E6F6F5 — fondo de selección */
+    --brand-foreground: 178 80% 8%; /* #042322 — texto sobre turquesa (7.4:1) */
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    /* ---------------------------------------------------------- Alertas -- */
+    --success: 154 63% 33%; /* #1F8A5B */
+    --success-soft: 146 38% 95%; /* #EEF7F2 */
+    --warning: 36 71% 42%; /* #B7791F */
+    --warning-soft: 41 85% 95%; /* #FDF6E7 */
+    --danger: 4 63% 48%; /* #C8372D */
+    --danger-soft: 5 75% 96%; /* #FCEFEE */
 
-    --primary: 222 47% 18%;
-    --primary-foreground: 210 40% 98%;
-
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-
-    --accent: 214 95% 93%;
-    --accent-foreground: 222 47% 18%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 142 71% 35%;
-    --success-foreground: 0 0% 100%;
-
-    --warning: 38 92% 45%;
-    --warning-foreground: 0 0% 100%;
-
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 222 47% 30%;
-
-    --sidebar: 222 47% 13%;
-    --sidebar-foreground: 210 40% 96%;
-    --sidebar-muted: 215 20% 65%;
-    --sidebar-accent: 222 47% 20%;
-    --sidebar-border: 222 40% 22%;
-
-    --radius: 0.625rem;
+    /* ------------------------------------------------------- Geometría -- */
+    --radius: 0.625rem; /* 10px */
   }
 }
 
@@ -59,14 +52,27 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings:
-      'rlig' 1,
-      'calt' 1;
+    @apply bg-background font-sans text-sm text-foreground antialiased;
+    text-rendering: optimizeLegibility;
   }
 
-  /* Barras de desplazamiento discretas: la aplicación tiene muchas tablas y
-     paneles, y el scrollbar por defecto de Windows compite con el contenido. */
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold tracking-tight text-foreground;
+  }
+
+  ::selection {
+    background: hsl(var(--brand) / 0.2);
+  }
+
+  /* Foco visible y coherente en toda la aplicación: contorno turquesa. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--brand));
+    outline-offset: 2px;
+  }
+
+  /* Barras de desplazamiento discretas: muchas tablas y paneles. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -75,26 +81,44 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-border;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    @apply rounded-full bg-border-strong;
   }
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground/40;
+    @apply bg-subtle-foreground;
   }
 }
 
 @layer components {
-  /* Superficie estándar de tarjeta/panel. */
+  /* Panel: borde de 1px, radio 8, plano. La sombra se reserva a los overlays. */
   .surface {
-    @apply rounded-xl border border-border bg-card shadow-sm;
+    @apply rounded-md border border-border bg-card;
   }
 
-  /* Contenedor con desplazamiento horizontal propio: el cuerpo de la página
-     nunca debe desplazarse en horizontal, las tablas anchas sí. */
+  /* El cuerpo nunca se desplaza en horizontal; las tablas anchas sí. */
   .scroll-x {
     @apply w-full overflow-x-auto;
   }
 
+  /* Etiqueta de grupo del sidebar: el único texto en mayúsculas del producto. */
   .label-caps {
-    @apply text-2xs font-semibold uppercase tracking-wider text-muted-foreground;
+    @apply text-overline uppercase text-muted-foreground;
+  }
+
+  /* Códigos de entidad (CAS-000001, CON-000002…). */
+  .code {
+    @apply font-mono text-caption font-medium text-muted-foreground;
+  }
+
+  /* Enlace de texto de marca. */
+  .link {
+    @apply font-medium text-brand-strong underline-offset-4 hover:underline;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }

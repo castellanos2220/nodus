@@ -20,6 +20,8 @@ export interface AppConfig {
     appUrl: string;
     apiUrl: string;
     maxRequestBodyMb: number;
+    /** Valor de `trust proxy` de Express: qué saltos pueden fijar la IP del cliente. */
+    trustProxy: boolean | number | string;
   };
 
   database: {
@@ -66,15 +68,28 @@ export interface AppConfig {
     atRiskThresholdPercent: number;
   };
 
-  throttle: {
-    ttlSeconds: number;
-    limit: number;
-    authTtlSeconds: number;
-    authLimit: number;
-  };
+  /** Una entrada por política de `core/rate-limit`. */
+  throttle: Record<'auth' | 'public' | 'write' | 'read' | 'internal', RateLimitRule>;
 
   workerMode: boolean;
 }
+
+export interface RateLimitRule {
+  ttlSeconds: number;
+  limit: number;
+}
+
+/**
+ * `TRUST_PROXY` admite lo mismo que Express: `true`/`false`, un número de saltos
+ * o una lista de subredes (`loopback, linklocal, uniquelocal`).
+ */
+const trustProxy = (value: string | undefined): boolean | number | string => {
+  if (value === undefined || value.trim() === '') return 'loopback, linklocal, uniquelocal';
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  const hops = Number(value);
+  return Number.isInteger(hops) ? hops : value;
+};
 
 const bool = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined || value === '') return fallback;
@@ -97,6 +112,11 @@ const list = (value: string | undefined, fallback: string[]): string[] => {
 export const configuration = (): AppConfig => {
   const nodeEnv = (process.env.NODE_ENV ?? 'development') as AppConfig['nodeEnv'];
 
+  const rule = (policy: string, ttlSeconds: number, limit: number): RateLimitRule => ({
+    ttlSeconds: int(process.env[`THROTTLE_${policy}_TTL_SECONDS`], ttlSeconds),
+    limit: nodeEnv === 'test' ? 100_000 : int(process.env[`THROTTLE_${policy}_LIMIT`], limit),
+  });
+
   return {
     nodeEnv,
     appName: process.env.APP_NAME ?? 'NODUS',
@@ -110,6 +130,7 @@ export const configuration = (): AppConfig => {
       appUrl: process.env.APP_URL ?? 'http://localhost:3000',
       apiUrl: process.env.API_URL ?? 'http://localhost:4000',
       maxRequestBodyMb: int(process.env.MAX_REQUEST_BODY_MB, 2),
+      trustProxy: trustProxy(process.env.TRUST_PROXY),
     },
 
     database: {
@@ -156,15 +177,16 @@ export const configuration = (): AppConfig => {
       atRiskThresholdPercent: int(process.env.SLA_AT_RISK_THRESHOLD_PERCENT, 75),
     },
 
-    // El límite de tasa protege de abuso en producción. Una suite E2E recorre el
-    // ciclo completo desde una sola dirección y lo dispararía: en `test` se eleva
-    // el techo en lugar de desactivar el guard, para que el middleware siga
-    // siendo el mismo que corre en producción.
+    // Políticas de límite de tasa (ver ADR-009). Una suite E2E recorre el ciclo
+    // completo desde una sola dirección y dispararía los límites estrictos: en
+    // `test` se eleva el techo en lugar de desactivar el guard, para que el
+    // middleware siga siendo el mismo que corre en producción.
     throttle: {
-      ttlSeconds: int(process.env.THROTTLE_TTL_SECONDS, 60),
-      limit: nodeEnv === 'test' ? 100_000 : int(process.env.THROTTLE_LIMIT, 120),
-      authTtlSeconds: int(process.env.THROTTLE_AUTH_TTL_SECONDS, 300),
-      authLimit: nodeEnv === 'test' ? 100_000 : int(process.env.THROTTLE_AUTH_LIMIT, 10),
+      auth: rule('AUTH', 300, 10),
+      public: rule('PUBLIC', 60, 30),
+      write: rule('WRITE', 60, 120),
+      read: rule('READ', 60, 1200),
+      internal: rule('INTERNAL', 60, 120),
     },
 
     workerMode: bool(process.env.WORKER_MODE, false),

@@ -2,10 +2,27 @@
 
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ListChecks, Mail, ShieldCheck } from 'lucide-react';
+import { ListChecks, Mail, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
-import { Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton, TBody, TD, TH, THead, TR, Table } from '@/components/ui/primitives';
+import { cn, humanizeCode } from '@/lib/utils';
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Skeleton,
+  TBody,
+  TD,
+  TH,
+  THead,
+  TR,
+  Table,
+} from '@/components/ui/primitives';
+import { Tabs } from '@/components/ui/tabs';
+import { FadeIn } from '@/components/ui/motion';
 import { useLookups } from '@/features/lookups/use-lookups';
 
 type Section = 'lookups' | 'roles' | 'templates';
@@ -13,40 +30,24 @@ type Section = 'lookups' | 'roles' | 'templates';
 export function SettingsView() {
   const [section, setSection] = React.useState<Section>('lookups');
 
-  const tabs: Array<{ id: Section; label: string; icon: typeof ListChecks }> = [
-    { id: 'lookups', label: 'Listas de valores', icon: ListChecks },
-    { id: 'roles', label: 'Roles y permisos', icon: ShieldCheck },
-    { id: 'templates', label: 'Plantillas TCOM', icon: Mail },
-  ];
-
   return (
-    <div className="space-y-4">
-      <div className="scroll-x border-b border-border">
-        <div className="flex min-w-max gap-0.5" role="tablist">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={section === tab.id}
-              onClick={() => setSection(tab.id)}
-              className={cn(
-                'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm transition-colors',
-                section === tab.id
-                  ? 'border-primary font-medium'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <tab.icon className="size-4" aria-hidden />
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="space-y-6">
+      <Tabs<Section>
+        items={[
+          { id: 'lookups', label: 'Listas de valores' },
+          { id: 'roles', label: 'Roles y permisos' },
+          { id: 'templates', label: 'Plantillas TCOM' },
+        ]}
+        value={section}
+        onValueChange={setSection}
+        layoutId="settings-tabs"
+      />
 
-      {section === 'lookups' && <LookupsSection />}
-      {section === 'roles' && <RolesSection />}
-      {section === 'templates' && <TemplatesSection />}
+      <FadeIn key={section} role="tabpanel">
+        {section === 'lookups' && <LookupsSection />}
+        {section === 'roles' && <RolesSection />}
+        {section === 'templates' && <TemplatesSection />}
+      </FadeIn>
     </div>
   );
 }
@@ -55,79 +56,95 @@ function LookupsSection() {
   const { data, isLoading } = useLookups();
   const [selected, setSelected] = React.useState<string | null>(null);
 
-  if (isLoading) return <Skeleton className="h-96" />;
-  if (!data || data.length === 0) return <EmptyState title="Sin listas configuradas" />;
+  if (isLoading) return <Skeleton className="h-96 rounded-md" />;
+  if (!data || data.length === 0) {
+    return (
+      <Card>
+        <EmptyState title="Sin listas configuradas" />
+      </Card>
+    );
+  }
 
   const active = data.find((list) => list.code === selected) ?? data[0];
 
   return (
-    <div className="grid gap-4 md:grid-cols-[260px_1fr]">
-      <Card className="overflow-hidden">
+    <div className="grid gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
+      <Card className="self-start overflow-hidden">
         <CardHeader>
           <CardTitle>Listas</CardTitle>
+          <CardDescription>{data.length} catálogos gobernados</CardDescription>
         </CardHeader>
-        <CardContent className="p-0">
-          <ul className="divide-y divide-border">
-            {data.map((list) => (
+        <ul className="space-y-0.5 px-2 pb-2">
+          {data.map((list) => {
+            const isActive = active?.code === list.code;
+            return (
               <li key={list.code}>
                 <button
                   type="button"
                   onClick={() => setSelected(list.code)}
+                  aria-current={isActive ? 'true' : undefined}
                   className={cn(
-                    'flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors',
-                    active?.code === list.code ? 'bg-accent/50' : 'hover:bg-secondary/50',
+                    'flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors',
+                    isActive ? 'bg-brand-soft' : 'hover:bg-muted',
                   )}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-xs font-medium">{list.name}</span>
-                    <span className="block truncate font-mono text-2xs text-muted-foreground">
-                      {list.code}
+                    <span
+                      className={cn(
+                        'block truncate text-sm',
+                        isActive ? 'font-medium text-foreground' : 'text-ink-2',
+                      )}
+                    >
+                      {list.name}
                     </span>
+                    <span className="code block truncate">{list.code}</span>
                   </span>
-                  <span className="shrink-0 font-mono text-2xs text-muted-foreground">
+                  <span className="tabular shrink-0 text-xs text-muted-foreground">
                     {list.values.length}
                   </span>
                 </button>
               </li>
-            ))}
-          </ul>
-        </CardContent>
+            );
+          })}
+        </ul>
       </Card>
 
       {active && (
         <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle>{active.name}</CardTitle>
-            <p className="text-xs leading-relaxed text-muted-foreground">{active.description}</p>
+            <CardDescription>{active.description}</CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <THead>
-                <TR className="hover:bg-transparent">
-                  <TH>Código</TH>
-                  <TH>Etiqueta</TH>
-                  <TH>Descripción</TH>
-                  <TH className="text-right">Orden</TH>
+          <Table>
+            <THead>
+              <tr>
+                <TH>Código</TH>
+                <TH>Etiqueta</TH>
+                <TH>Descripción</TH>
+                <TH className="text-right">Orden</TH>
+              </tr>
+            </THead>
+            <TBody>
+              {active.values.map((value) => (
+                <TR key={value.code}>
+                  <TD>
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-ink-2">
+                      {value.code}
+                    </span>
+                  </TD>
+                  <TD className="text-sm">{value.label}</TD>
+                  <TD className="max-w-[340px]">
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {value.description ?? '—'}
+                    </span>
+                  </TD>
+                  <TD className="tabular text-right text-xs text-muted-foreground">
+                    {value.sortOrder}
+                  </TD>
                 </TR>
-              </THead>
-              <TBody>
-                {active.values.map((value) => (
-                  <TR key={value.code}>
-                    <TD className="font-mono text-2xs">{value.code}</TD>
-                    <TD className="text-sm">{value.label}</TD>
-                    <TD className="max-w-[320px]">
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {value.description ?? '—'}
-                      </span>
-                    </TD>
-                    <TD className="text-right font-mono text-2xs text-muted-foreground">
-                      {value.sortOrder}
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </CardContent>
+              ))}
+            </TBody>
+          </Table>
         </Card>
       )}
     </div>
@@ -149,11 +166,17 @@ function RolesSection() {
     queryFn: () => api.get<RoleRow[]>('/roles'),
   });
 
-  if (isLoading) return <Skeleton className="h-96" />;
-  if (!data) return <EmptyState title="Sin roles configurados" />;
+  if (isLoading) return <Skeleton className="h-96 rounded-md" />;
+  if (!data) {
+    return (
+      <Card>
+        <EmptyState title="Sin roles configurados" />
+      </Card>
+    );
+  }
 
   return (
-    <div className="space-y-3">
+    <div className="grid gap-4 lg:grid-cols-2">
       {data.map((role) => {
         // Divergencia entre lo declarado en el código y lo persistido en la base.
         const drift =
@@ -162,32 +185,38 @@ function RolesSection() {
 
         return (
           <Card key={role.code}>
-            <CardHeader className="flex-row items-start justify-between gap-3">
-              <div>
+            <CardHeader className="flex-row items-start justify-between gap-4">
+              <div className="space-y-1">
                 <CardTitle>{role.name}</CardTitle>
-                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                  {role.description}
-                </p>
+                <CardDescription>{role.description}</CardDescription>
               </div>
               <div className="shrink-0 text-right">
-                <span className="font-mono text-2xs text-muted-foreground">{role.code}</span>
-                <p className="text-xs">
-                  {role.userCount} usuario{role.userCount === 1 ? '' : 's'}
-                </p>
+                <span className="code block">{role.code}</span>
+                <span className="tabular text-sm font-semibold">{role.userCount}</span>{' '}
+                <span className="text-xs text-muted-foreground">
+                  usuario{role.userCount === 1 ? '' : 's'}
+                </span>
               </div>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-3">
               {drift && (
-                <p className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-2xs">
+                <p className="flex items-start gap-2 rounded-md border border-warning/25 bg-warning-soft px-3 py-2 text-xs text-warning">
+                  <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
                   Los permisos persistidos difieren de los declarados en el código. Ejecute el seed
                   de RBAC para sincronizarlos.
                 </p>
               )}
+              <p className="text-xs text-muted-foreground">
+                {role.permissions.length} permiso{role.permissions.length === 1 ? '' : 's'}
+              </p>
               <div className="flex flex-wrap gap-1">
                 {role.permissions.map((permission) => (
-                  <Badge key={permission} tone="outline" className="font-mono normal-case">
+                  <span
+                    key={permission}
+                    className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-[10.5px] text-ink-2"
+                  >
                     {permission}
-                  </Badge>
+                  </span>
                 ))}
               </div>
             </CardContent>
@@ -215,54 +244,62 @@ function TemplatesSection() {
     queryFn: () => api.get<TemplateRow[]>('/notifications/templates'),
   });
 
-  if (isLoading) return <Skeleton className="h-96" />;
-  if (!data) return <EmptyState title="Sin plantillas configuradas" />;
+  if (isLoading) return <Skeleton className="h-96 rounded-md" />;
+  if (!data) {
+    return (
+      <Card>
+        <EmptyState title="Sin plantillas configuradas" />
+      </Card>
+    );
+  }
 
   return (
     <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>Plantillas de comunicación</CardTitle>
-        <p className="text-xs leading-relaxed text-muted-foreground">
+        <CardDescription>
           Parametrizables: asunto, cuerpo, audiencias y canal viven en base de datos. Cada una se
           dispara por un evento de dominio y sus destinatarios se resuelven en el momento del envío.
-        </p>
+        </CardDescription>
       </CardHeader>
-      <CardContent className="p-0">
-        <Table>
-          <THead>
-            <TR className="hover:bg-transparent">
-              <TH>Código</TH>
-              <TH>Nombre</TH>
-              <TH>Evento disparador</TH>
-              <TH>Audiencias</TH>
-              <TH className="text-right">Enviadas</TH>
+      <Table>
+        <THead>
+          <tr>
+            <TH>Código</TH>
+            <TH>Nombre</TH>
+            <TH>Evento disparador</TH>
+            <TH>Audiencias</TH>
+            <TH className="text-right">Enviadas</TH>
+          </tr>
+        </THead>
+        <TBody>
+          {data.map((template) => (
+            <TR key={template.code}>
+              <TD>
+                <span className="tabular text-xs font-semibold">{template.code}</span>
+              </TD>
+              <TD className="text-sm">{template.name}</TD>
+              <TD>
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {template.eventName}
+                </span>
+              </TD>
+              <TD>
+                <div className="flex flex-wrap gap-1">
+                  {template.audiences.map((audience) => (
+                    <Badge key={audience} tone="outline">
+                      {humanizeCode(audience)}
+                    </Badge>
+                  ))}
+                </div>
+              </TD>
+              <TD className="tabular text-right text-sm font-medium">
+                {template._count.notifications}
+              </TD>
             </TR>
-          </THead>
-          <TBody>
-            {data.map((template) => (
-              <TR key={template.code}>
-                <TD className="font-mono text-2xs font-semibold">{template.code}</TD>
-                <TD className="text-sm">{template.name}</TD>
-                <TD>
-                  <span className="font-mono text-2xs text-muted-foreground">
-                    {template.eventName}
-                  </span>
-                </TD>
-                <TD>
-                  <div className="flex flex-wrap gap-1">
-                    {template.audiences.map((audience) => (
-                      <Badge key={audience} tone="outline">
-                        {audience.replace(/_/g, ' ').toLowerCase()}
-                      </Badge>
-                    ))}
-                  </div>
-                </TD>
-                <TD className="text-right font-mono text-xs">{template._count.notifications}</TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
-      </CardContent>
+          ))}
+        </TBody>
+      </Table>
     </Card>
   );
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { forwardedHeaders } from '@/lib/forwarding';
 import { REFRESH_COOKIE, SESSION_COOKIE, apiBaseUrl, serializeSession } from '@/lib/session';
 
 /**
@@ -13,7 +14,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const response = await fetch(`${apiBaseUrl()}/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // La IP real del usuario: el límite de login es por IP y cuenta (ADR-009).
+    headers: { 'Content-Type': 'application/json', ...forwardedHeaders(request.headers) },
     body: JSON.stringify({ email: body.email, password: body.password }),
     cache: 'no-store',
   });

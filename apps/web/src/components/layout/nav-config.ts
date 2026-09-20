@@ -1,22 +1,21 @@
 import type { Role } from '@nodus/types';
 import {
   Building2,
-  ClipboardList,
-  FileStack,
+  ClipboardCheck,
+  Compass,
   FolderKanban,
-  Gauge,
-  LayoutDashboard,
+  LayoutGrid,
+  type LucideIcon,
   ScrollText,
   Settings2,
-  ShieldCheck,
   Timer,
-  Users,
+  UsersRound,
 } from 'lucide-react';
 
 export interface NavItem {
   href: string;
   label: string;
-  icon: typeof LayoutDashboard;
+  icon: LucideIcon;
   /** Roles que ven el enlace. Ocultar no protege: el backend decide. */
   roles: Role[];
   description: string;
@@ -27,13 +26,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-const ALL: Role[] = [
-  'SUPER_ADMIN',
-  'ADVISORY',
-  'CONSULTOR',
-  'CONSULTOR_REVISOR',
-  'CLIENTE_MIPYME',
-];
+const ALL: Role[] = ['SUPER_ADMIN', 'ADVISORY', 'CONSULTOR', 'CONSULTOR_REVISOR', 'CLIENTE_MIPYME'];
 
 /**
  * Navegación por rol.
@@ -49,7 +42,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         href: '/dashboard',
         label: 'Dashboard',
-        icon: LayoutDashboard,
+        icon: LayoutGrid,
         roles: ALL,
         description: 'Indicadores y casos que requieren atención',
       },
@@ -63,14 +56,14 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         href: '/opportunities',
         label: 'Oportunidades',
-        icon: ClipboardList,
+        icon: Compass,
         roles: ['CONSULTOR'],
         description: 'Bolsa interna de casos elegibles',
       },
       {
         href: '/proposals',
         label: 'QA de propuestas',
-        icon: FileStack,
+        icon: ClipboardCheck,
         roles: ['SUPER_ADMIN', 'ADVISORY', 'CONSULTOR_REVISOR'],
         description: 'Propuestas pendientes de revisión metodológica',
       },
@@ -89,7 +82,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         href: '/consultants',
         label: 'Consultores',
-        icon: Users,
+        icon: UsersRound,
         roles: ['SUPER_ADMIN', 'ADVISORY'],
         description: 'Ecosistema curado de consultores',
       },
@@ -108,7 +101,7 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         href: '/audit',
         label: 'Auditoría',
-        icon: ShieldCheck,
+        icon: ScrollText,
         roles: ['SUPER_ADMIN', 'ADVISORY'],
         description: 'Bitácora inmutable de la plataforma',
       },
@@ -130,4 +123,27 @@ export function navForRole(role: Role): NavGroup[] {
   })).filter((group) => group.items.length > 0);
 }
 
-export { Gauge, ScrollText };
+/** `/cases/<id>` mantiene activo «Casos»; el dashboard sólo coincide exacto. */
+export function isNavActive(pathname: string, href: string): boolean {
+  return pathname === href || (href !== '/dashboard' && pathname.startsWith(`${href}/`));
+}
+
+/**
+ * Contexto de la página actual para las migas de pan: grupo, sección y, si la
+ * ruta es más profunda que la sección, una etiqueta para el detalle.
+ */
+export function navContext(pathname: string): {
+  group: string;
+  item: NavItem;
+  detail: string | null;
+} | null {
+  for (const group of NAV_GROUPS) {
+    for (const item of group.items) {
+      if (!isNavActive(pathname, item.href)) continue;
+      const rest = pathname.slice(item.href.length).replace(/^\//, '');
+      const detail = rest === '' ? null : rest === 'new' ? 'Nuevo' : 'Detalle';
+      return { group: group.label, item, detail };
+    }
+  }
+  return null;
+}

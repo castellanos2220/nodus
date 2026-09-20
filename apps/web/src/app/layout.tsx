@@ -1,21 +1,22 @@
 import type { Metadata, Viewport } from 'next';
+import { GeistSans } from 'geist/font/sans';
+import { GeistMono } from 'geist/font/mono';
 import { Providers } from '@/components/providers';
 import './globals.css';
 
 /**
- * La tipografía usa la pila del sistema, definida en `globals.css`.
+ * Tipografía: Geist Sans y Geist Mono.
  *
- * Se descartó `next/font/google` a propósito: descarga la fuente en tiempo de
- * compilación, lo que hace que `next build` dependa de tener acceso a
- * fonts.googleapis.com. Un evaluador que construya sin red — o detrás de un
- * proxy corporativo — vería fallar el build por un detalle tipográfico. La pila
- * del sistema se ve bien en los tres sistemas operativos y no cuesta una
- * petición.
+ * Se sirven desde el paquete npm `geist` (por debajo, `next/font/local`): los
+ * archivos de fuente viajan dentro del bundle y `next build` **no** necesita
+ * red. Esa fue la razón para descartar `next/font/google` en la primera versión
+ * y sigue vigente: un evaluador que construya sin conexión no debe ver fallar el
+ * build por un detalle tipográfico.
  */
 
 export const metadata: Metadata = {
   title: {
-    default: 'NODUS — Orquestación empresarial',
+    default: 'NODUS — Control empresarial',
     template: '%s · NODUS',
   },
   description:
@@ -27,12 +28,16 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#0f172a',
+  themeColor: '#FAFAF9',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html
+      lang="es"
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      suppressHydrationWarning
+    >
       <body>
         <Providers>{children}</Providers>
       </body>

@@ -42,8 +42,11 @@ async function bootstrap(): Promise<void> {
   app.useBodyParser('json', { limit: `${http.maxRequestBodyMb}mb` });
   app.useBodyParser('urlencoded', { limit: `${http.maxRequestBodyMb}mb`, extended: true });
 
-  // Confía en el proxy para obtener la IP real (rate limiting y auditoría).
-  app.set('trust proxy', 1);
+  // IP real del cliente (límite de tasa y auditoría). Por defecto sólo se confía
+  // en saltos de red privada —el proxy de Next, un balanceador interno—: una
+  // petición directa desde internet no puede falsear su IP con X-Forwarded-For.
+  // En producción, el proxy de borde debe sobrescribir esa cabecera (ADR-009).
+  app.set('trust proxy', http.trustProxy);
 
   // --- Validación ------------------------------------------------------------
   app.useGlobalPipes(

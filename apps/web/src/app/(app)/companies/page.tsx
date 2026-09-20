@@ -17,7 +17,7 @@ export default function CompaniesPage() {
           'correo, dominio corporativo y similitud de nombre.'
         }
       />
-      <Suspense fallback={<Skeleton className="h-96" />}>
+      <Suspense fallback={<Skeleton className="h-96 rounded-md" />}>
         <CompaniesTable />
       </Suspense>
     </>

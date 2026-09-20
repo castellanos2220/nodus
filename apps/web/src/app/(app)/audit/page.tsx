@@ -8,7 +8,7 @@ export default function AuditPage() {
   return (
     <>
       <PageHeader
-        title="Bitácora de auditoría"
+        title="Auditoría"
         description={
           'Registro append-only de toda acción relevante. No existe endpoint de modificación ni ' +
           'de borrado, y dos triggers de PostgreSQL rechazan cualquier UPDATE o DELETE sobre la tabla.'

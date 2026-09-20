@@ -13,7 +13,7 @@ export default async function OpportunitiesPage() {
   return (
     <>
       <PageHeader
-        title="Bolsa interna de oportunidades"
+        title="Oportunidades"
         description={
           'Espacio curado, no un marketplace abierto: sólo aparecen los casos para los que su ' +
           'perfil es elegible según especialidad, nivel, complejidad habilitada y alcance.'

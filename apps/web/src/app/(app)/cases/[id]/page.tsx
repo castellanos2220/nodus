@@ -5,11 +5,7 @@ import { currentUser } from '@/lib/session';
 
 export const metadata: Metadata = { title: 'Detalle del caso' };
 
-export default async function CaseDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await currentUser();
   if (!user) redirect('/login');
 

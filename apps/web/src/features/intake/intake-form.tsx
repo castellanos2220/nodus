@@ -5,9 +5,29 @@ import Link from 'next/link';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { intakeSchema, type IntakeInput } from '@nodus/types';
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Copy } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Copy,
+  KeyRound,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, Field, Input, Select, Textarea } from '@/components/ui/primitives';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Checkbox,
+  Field,
+  FormError,
+  Input,
+  Select,
+  Textarea,
+} from '@/components/ui/primitives';
 
 interface LookupOption {
   code: string;
@@ -94,10 +114,10 @@ export function IntakeForm() {
       <Card className={step === 1 ? '' : 'hidden'}>
         <CardHeader>
           <CardTitle>Bloque 1 · Identificación</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Sólo lo mínimo para identificar a su organización. Nada de estructura organizacional
-            ni documentación legal en este punto.
-          </p>
+          <CardDescription>
+            Sólo lo mínimo para identificar a su organización. Nada de estructura organizacional ni
+            documentación legal en este punto.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <Field
@@ -107,7 +127,11 @@ export function IntakeForm() {
             error={errors.companyName?.message}
             className="sm:col-span-2"
           >
-            <Input id="companyName" placeholder="Aceros del Norte S.A.S." {...register('companyName')} />
+            <Input
+              id="companyName"
+              placeholder="Aceros del Norte S.A.S."
+              {...register('companyName')}
+            />
           </Field>
 
           <Field
@@ -133,7 +157,11 @@ export function IntakeForm() {
             required
             error={errors.contactFullName?.message}
           >
-            <Input id="contactFullName" placeholder="María Restrepo" {...register('contactFullName')} />
+            <Input
+              id="contactFullName"
+              placeholder="María Restrepo"
+              {...register('contactFullName')}
+            />
           </Field>
 
           <Field
@@ -173,15 +201,16 @@ export function IntakeForm() {
           </Field>
 
           <div className="sm:col-span-2">
-            <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/40 p-3">
-              <input type="checkbox" className="mt-0.5" {...register('acceptedTerms')} />
-              <span className="text-xs leading-relaxed">
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background p-4">
+              <Checkbox className="mt-0.5" {...register('acceptedTerms')} />
+              <span className="text-xs leading-relaxed text-ink-2">
                 Acepto los términos de uso y la política de tratamiento de datos personales de la
                 plataforma.
               </span>
             </label>
             {errors.acceptedTerms && (
-              <p className="mt-1 text-xs font-medium text-destructive" role="alert">
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-danger" role="alert">
+                <AlertCircle className="size-3.5 shrink-0" aria-hidden />
                 {errors.acceptedTerms.message}
               </p>
             )}
@@ -199,10 +228,10 @@ export function IntakeForm() {
       <Card className={step === 2 ? '' : 'hidden'}>
         <CardHeader>
           <CardTitle>Bloque 2 · Su necesidad</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Describa el problema con sus palabras. La plataforma añadirá etiquetas de
-            clasificación, pero no modificará su relato.
-          </p>
+          <CardDescription>
+            Describa el problema con sus palabras. La plataforma añadirá etiquetas de clasificación,
+            pero no modificará su relato.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Field
@@ -235,7 +264,12 @@ export function IntakeForm() {
           </Field>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Área del negocio" htmlFor="areaCode" required error={errors.areaCode?.message}>
+            <Field
+              label="Área del negocio"
+              htmlFor="areaCode"
+              required
+              error={errors.areaCode?.message}
+            >
               <Select id="areaCode" defaultValue="" {...register('areaCode')}>
                 <option value="" disabled>
                   Seleccione…
@@ -248,7 +282,12 @@ export function IntakeForm() {
               </Select>
             </Field>
 
-            <Field label="Urgencia" htmlFor="urgencyCode" required error={errors.urgencyCode?.message}>
+            <Field
+              label="Urgencia"
+              htmlFor="urgencyCode"
+              required
+              error={errors.urgencyCode?.message}
+            >
               <Select id="urgencyCode" defaultValue="" {...register('urgencyCode')}>
                 <option value="" disabled>
                   Seleccione…
@@ -261,7 +300,12 @@ export function IntakeForm() {
               </Select>
             </Field>
 
-            <Field label="Impacto estimado" htmlFor="impactCode" required error={errors.impactCode?.message}>
+            <Field
+              label="Impacto estimado"
+              htmlFor="impactCode"
+              required
+              error={errors.impactCode?.message}
+            >
               <Select id="impactCode" defaultValue="" {...register('impactCode')}>
                 <option value="" disabled>
                   Seleccione…
@@ -275,18 +319,10 @@ export function IntakeForm() {
             </Field>
           </div>
 
-          {serverError && (
-            <div
-              className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5"
-              role="alert"
-            >
-              <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
-              <p className="text-xs leading-relaxed text-destructive">{serverError}</p>
-            </div>
-          )}
+          {serverError && <FormError>{serverError}</FormError>}
 
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => setStep(1)}>
+            <Button type="button" variant="secondary" onClick={() => setStep(1)}>
               <ArrowLeft /> Volver
             </Button>
             <Button type="submit" loading={isSubmitting} className="flex-1 sm:flex-none">
@@ -301,24 +337,37 @@ export function IntakeForm() {
 
 function StepIndicator({ step }: { step: 1 | 2 }) {
   return (
-    <ol className="flex items-center gap-3 text-xs">
-      {([1, 2] as const).map((value) => (
-        <li key={value} className="flex items-center gap-2">
-          <span
-            className={`flex size-6 items-center justify-center rounded-full font-mono text-2xs font-semibold ${
-              step >= value
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-muted-foreground'
-            }`}
-          >
-            {value}
-          </span>
-          <span className={step >= value ? 'font-medium' : 'text-muted-foreground'}>
-            {value === 1 ? 'Identificación' : 'Necesidad'}
-          </span>
-          {value === 1 && <span className="ml-1 h-px w-8 bg-border" aria-hidden />}
-        </li>
-      ))}
+    <ol className="flex items-center gap-3 text-sm">
+      {([1, 2] as const).map((value) => {
+        const done = step > value;
+        const current = step === value;
+        return (
+          <li key={value} className="flex items-center gap-3">
+            <span
+              className={`tabular flex size-7 items-center justify-center rounded-full border text-xs font-semibold transition-colors ${
+                done
+                  ? 'border-foreground bg-foreground text-card'
+                  : current
+                    ? 'border-brand bg-card text-foreground shadow-focus'
+                    : 'border-border-strong bg-card text-muted-foreground'
+              }`}
+            >
+              {done ? <Check className="size-3.5" strokeWidth={2.75} aria-hidden /> : value}
+            </span>
+            <span
+              className={current || done ? 'font-medium text-foreground' : 'text-muted-foreground'}
+            >
+              {value === 1 ? 'Identificación' : 'Necesidad'}
+            </span>
+            {value === 1 && (
+              <span
+                className={`h-px w-12 ${step > 1 ? 'bg-brand' : 'bg-border-strong'}`}
+                aria-hidden
+              />
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -330,9 +379,11 @@ function IntakeSuccess({ result }: { result: IntakeResult }) {
     <Card>
       <CardContent className="space-y-6 py-8">
         <div className="flex flex-col items-center gap-3 text-center">
-          <CheckCircle2 className="size-10 text-success" aria-hidden />
+          <span className="flex size-12 items-center justify-center rounded-full bg-success-soft text-success">
+            <CheckCircle2 className="size-6" aria-hidden />
+          </span>
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold">Su caso quedó registrado</h2>
+            <h2 className="text-2xl font-semibold">Su caso quedó registrado</h2>
             <p className="text-sm text-muted-foreground">
               Identificador del caso:{' '}
               <span className="font-mono font-semibold text-foreground">{result.case.code}</span>
@@ -340,9 +391,9 @@ function IntakeSuccess({ result }: { result: IntakeResult }) {
           </div>
         </div>
 
-        <div className="space-y-2 rounded-lg border border-border bg-secondary/40 p-4">
+        <div className="space-y-3 rounded-md border border-border bg-background p-5">
           <p className="text-sm font-medium">Qué ocurre ahora</p>
-          <ol className="space-y-1.5 text-xs leading-relaxed text-muted-foreground">
+          <ol className="space-y-2 text-sm leading-relaxed text-ink-2">
             <li>1. El equipo advisory revisa la información y hace la debida diligencia.</li>
             <li>2. El caso se clasifica con taxonomías gobernadas y se valida su elegibilidad.</li>
             <li>3. Se publica en la bolsa interna de consultores habilitados y elegibles.</li>
@@ -352,13 +403,15 @@ function IntakeSuccess({ result }: { result: IntakeResult }) {
         </div>
 
         {result.user.temporaryPassword && (
-          <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <p className="text-sm font-medium text-amber-900">Acceso a la plataforma</p>
-            <p className="text-xs leading-relaxed text-amber-900">
-              Hemos creado su cuenta para que pueda seguir el caso. Guarde esta contraseña
-              temporal: se le pedirá cambiarla al entrar.
+          <div className="space-y-3 rounded-md border border-brand/30 bg-brand-soft/60 p-5">
+            <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <KeyRound className="size-4 text-brand-strong" aria-hidden /> Acceso a la plataforma
             </p>
-            <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-card px-3 py-2">
+            <p className="text-xs leading-relaxed text-ink-2">
+              Hemos creado su cuenta para que pueda seguir el caso. Guarde esta contraseña temporal:
+              se le pedirá cambiarla al entrar.
+            </p>
+            <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
               <code className="min-w-0 flex-1 truncate font-mono text-sm">
                 {result.user.temporaryPassword}
               </code>
@@ -375,7 +428,7 @@ function IntakeSuccess({ result }: { result: IntakeResult }) {
                 <Copy /> {copied ? 'Copiada' : 'Copiar'}
               </Button>
             </div>
-            <p className="text-2xs text-amber-900">
+            <p className="text-xs text-muted-foreground">
               Usuario: <span className="font-mono">{result.user.email}</span>
             </p>
           </div>
@@ -385,7 +438,7 @@ function IntakeSuccess({ result }: { result: IntakeResult }) {
           <Button asChild>
             <Link href="/login">Entrar a la plataforma</Link>
           </Button>
-          <Button variant="outline" asChild>
+          <Button variant="secondary" asChild>
             <Link href="/intake">Registrar otro caso</Link>
           </Button>
         </div>

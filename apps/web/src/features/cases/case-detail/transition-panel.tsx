@@ -1,12 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowRight, Info, Lock } from 'lucide-react';
+import { ROLE_LABEL, type CaseStatusCode, type Role } from '@nodus/types';
+import { ArrowRight, Clock, Lock, TriangleAlert } from 'lucide-react';
 import { ApiError, api } from '@/lib/api';
+import { formatDateTime, formatRelative } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, Field, Select, Textarea } from '@/components/ui/primitives';
+import { Field, FormError, Select, Textarea } from '@/components/ui/primitives';
 import {
   Dialog,
   DialogBody,
@@ -16,86 +18,202 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { CaseStatusBadge } from '@/components/ui/status';
+import { StatusBadge } from '@/components/ui/status';
 import { useLookupValues } from '@/features/lookups/use-lookups';
 import type { AvailableTransition, CaseDetail } from '../types';
 
+/** Transición tal como la publica el catálogo `GET /workflow/transitions`. */
+interface CatalogTransition {
+  code: string;
+  label: string;
+  from: CaseStatusCode;
+  to: CaseStatusCode;
+  roles: Role[];
+  scope: 'ANY' | 'LEAD_CONSULTANT' | 'CLIENT_OWNER' | 'SYSTEM';
+}
+
+interface ExecutionBlockers {
+  closureBlockers: string[];
+}
+
 /**
- * Panel de acciones del caso.
+ * Siguiente paso del caso.
  *
- * Los botones **no** los decide el frontend: se pintan a partir de
- * `availableTransitions`, que el backend calcula para este usuario y este caso
- * ejecutando los mismos guards que aplicaría de verdad. Cuando una transición
- * está bloqueada, la razón que se muestra viene también del backend.
+ * Responde siempre a «¿qué sigue?», también cuando el usuario no puede actuar:
  *
- * Consecuencia práctica: no existe una regla de negocio duplicada aquí. Si el
- * backend cambia una precondición, esta pantalla lo refleja sin tocarla.
+ *   - Las acciones propias salen de `availableTransitions`, que el backend
+ *     calcula para este usuario ejecutando los mismos guards que aplicaría de
+ *     verdad. Las bloqueadas muestran la razón que devuelve el backend.
+ *   - Si el paso lo tiene otra persona, se dice quién a partir del catálogo de
+ *     transiciones del backend (roles y alcance de cada una) y del responsable o
+ *     contacto del caso. La UI no replica reglas: sólo lee el catálogo.
  */
-export function TransitionPanel({ kase }: { kase: CaseDetail }) {
+export function NextStepPanel({
+  kase,
+  enteredCurrentAt,
+}: {
+  kase: CaseDetail;
+  enteredCurrentAt: string;
+}) {
   const [active, setActive] = React.useState<AvailableTransition | null>(null);
 
-  if (kase.availableTransitions.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Acciones</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            No hay acciones disponibles para su rol en el estado actual del caso.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const catalog = useQuery({
+    queryKey: ['workflow', 'catalog'],
+    queryFn: () => api.get<CatalogTransition[]>('/workflow/transitions'),
+    staleTime: Infinity,
+  });
+
+  // Los bloqueos de cierre técnico viven en el resumen de ejecución.
+  const execution = useQuery({
+    queryKey: ['case', kase.id, 'execution-summary'],
+    queryFn: () => api.get<ExecutionBlockers>(`/cases/${kase.id}/execution-summary`),
+    enabled: kase.status === 'EN_EJECUCION',
+  });
+
+  const allowed = kase.availableTransitions.filter((transition) => transition.allowed);
+  const blocked = kase.availableTransitions.filter((transition) => !transition.allowed);
+  const outgoing = (catalog.data ?? []).filter(
+    (transition) => transition.from === kase.status && transition.scope !== 'SYSTEM',
+  );
+  const terminal = catalog.data !== undefined && outgoing.length === 0;
+  const waitingOn = allowed.length === 0 ? describeActors(outgoing, kase) : [];
+  const closureBlockers = execution.data?.closureBlockers ?? [];
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Acciones disponibles</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Calculadas por el backend para su rol y el estado actual
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {kase.availableTransitions.map((transition) => (
-            <div key={transition.code} className="space-y-1.5">
-              <Button
-                variant={transition.allowed ? 'default' : 'outline'}
-                className="w-full justify-between"
-                disabled={!transition.allowed}
-                onClick={() => setActive(transition)}
-                title={transition.description}
-              >
-                <span className="truncate">{transition.label}</span>
-                {transition.allowed ? (
-                  <ArrowRight className="shrink-0" aria-hidden />
-                ) : (
-                  <Lock className="shrink-0 opacity-60" aria-hidden />
-                )}
-              </Button>
+      <section className="surface" aria-labelledby="next-step-title">
+        <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+          <h2 id="next-step-title" className="text-h3">
+            Siguiente paso
+          </h2>
+          {kase.sla && !terminal && (
+            <span
+              className="inline-flex items-center gap-1 text-caption text-muted-foreground"
+              title={`Plazo de la etapa: ${formatDateTime(kase.sla.deadline)}`}
+            >
+              <Clock className="size-3.5" aria-hidden />
+              {new Date(kase.sla.deadline).getTime() < Date.now() ? 'venció' : 'vence'}{' '}
+              {formatRelative(kase.sla.deadline)}
+            </span>
+          )}
+        </header>
 
-              {!transition.allowed && transition.blockedReason && (
-                <p className="flex items-start gap-1.5 rounded-md bg-secondary/60 px-2.5 py-2 text-2xs leading-relaxed text-muted-foreground">
-                  <Info className="mt-px size-3 shrink-0" aria-hidden />
-                  <span>{transition.blockedReason}</span>
-                </p>
-              )}
+        <div className="space-y-4 p-5">
+          {allowed.length > 0 && (
+            <div className="space-y-2">
+              {allowed.map((transition, index) => (
+                <Button
+                  key={transition.code}
+                  // La primera acción disponible es la principal; el resto, secundarias.
+                  variant={index === 0 ? 'primary' : 'secondary'}
+                  className="w-full justify-between"
+                  onClick={() => setActive(transition)}
+                  title={transition.description}
+                >
+                  <span className="truncate">{transition.label}</span>
+                  <ArrowRight className="shrink-0" aria-hidden />
+                </Button>
+              ))}
             </div>
-          ))}
-        </CardContent>
-      </Card>
+          )}
+
+          {terminal && allowed.length === 0 && (
+            <p className="text-body-sm text-ink-2">
+              El ciclo del caso terminó
+              {kase.closedAt ? ` el ${formatDateTime(kase.closedAt)}` : ''}. No quedan pasos
+              pendientes.
+            </p>
+          )}
+
+          {!terminal && waitingOn.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-caption text-muted-foreground">Esperando a</p>
+              <ul className="space-y-1.5">
+                {waitingOn.map((actor) => (
+                  <li key={actor.who} className="text-body-sm">
+                    <span className="font-medium text-foreground">{actor.who}</span>
+                    {actor.name && <span className="text-ink-2"> · {actor.name}</span>}
+                    <span className="block text-caption text-muted-foreground">
+                      {actor.actions.join(' · ')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-caption text-muted-foreground">
+                En este estado desde {formatRelative(enteredCurrentAt)}
+              </p>
+            </div>
+          )}
+
+          {(blocked.length > 0 || closureBlockers.length > 0) && (
+            <div className="space-y-2 border-t border-border-subtle pt-4 first:border-t-0 first:pt-0">
+              <p className="text-caption text-muted-foreground">Bloqueado</p>
+              <ul className="space-y-2.5">
+                {blocked.map((transition) => (
+                  <li key={transition.code} className="flex gap-2 text-body-sm">
+                    <Lock className="mt-0.5 size-3.5 shrink-0 text-subtle-foreground" aria-hidden />
+                    <span className="min-w-0">
+                      <span className="text-ink-2">{transition.label}</span>
+                      {transition.blockedReason && (
+                        <span className="block text-caption text-muted-foreground">
+                          {transition.blockedReason}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+                {closureBlockers.map((blocker) => (
+                  <li key={blocker} className="flex gap-2 text-body-sm text-ink-2">
+                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+                    {blocker}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </section>
 
       {active && (
-        <TransitionDialog
-          kase={kase}
-          transition={active}
-          onClose={() => setActive(null)}
-        />
+        <TransitionDialog kase={kase} transition={active} onClose={() => setActive(null)} />
       )}
     </>
   );
+}
+
+/**
+ * Quién puede mover el caso desde su estado actual, agrupado por actor, a
+ * partir del catálogo de transiciones del backend.
+ */
+function describeActors(
+  outgoing: CatalogTransition[],
+  kase: CaseDetail,
+): Array<{ who: string; name: string | null; actions: string[] }> {
+  const groups = new Map<string, { who: string; name: string | null; actions: string[] }>();
+
+  for (const transition of outgoing) {
+    let who: string;
+    let name: string | null = null;
+
+    if (transition.scope === 'CLIENT_OWNER') {
+      who = 'Cliente';
+      name = kase.contact?.fullName ?? null;
+    } else if (transition.scope === 'LEAD_CONSULTANT') {
+      who = 'Consultor responsable';
+      name = kase.leadConsultant?.user.fullName ?? null;
+    } else {
+      const roles = transition.roles.filter((role) => role !== 'SUPER_ADMIN');
+      who = (roles.length > 0 ? roles : transition.roles)
+        .map((role) => (role === 'CONSULTOR' ? 'Consultor responsable' : ROLE_LABEL[role]))
+        .join(' o ');
+    }
+
+    const group = groups.get(who) ?? { who, name, actions: [] };
+    group.actions.push(transition.label);
+    groups.set(who, group);
+  }
+
+  return [...groups.values()];
 }
 
 // ============================================================================
@@ -149,14 +267,14 @@ function TransitionDialog({
         <DialogHeader>
           <DialogTitle>{transition.label}</DialogTitle>
           <DialogDescription>{transition.description}</DialogDescription>
-          <div className="flex items-center gap-2 pt-1">
-            <CaseStatusBadge status={kase.status} />
-            <ArrowRight className="size-3 text-muted-foreground" aria-hidden />
-            <CaseStatusBadge status={transition.toStatus} />
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <StatusBadge status={kase.status} variant="pill" />
+            <ArrowRight className="size-3.5 text-subtle-foreground" aria-hidden />
+            <StatusBadge status={transition.toStatus} variant="pill" />
           </div>
         </DialogHeader>
 
-        <DialogBody className="space-y-4">
+        <DialogBody className="space-y-5">
           {form}
 
           <Field
@@ -173,18 +291,11 @@ function TransitionDialog({
             />
           </Field>
 
-          {serverError && (
-            <p
-              className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive"
-              role="alert"
-            >
-              {serverError}
-            </p>
-          )}
+          {serverError && <FormError>{serverError}</FormError>}
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
+          <Button variant="secondary" onClick={onClose} disabled={mutation.isPending}>
             Cancelar
           </Button>
           <Button
@@ -194,7 +305,7 @@ function TransitionDialog({
             }}
             loading={mutation.isPending}
           >
-            {mutation.isPending ? 'Aplicando…' : `Confirmar: ${transition.label}`}
+            {mutation.isPending ? 'Aplicando…' : transition.label}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -321,7 +432,11 @@ function DeclineForm({ onChange }: { onChange: (payload: Record<string, unknown>
         htmlFor="potential"
         hint="Alimenta la analítica comercial de la plataforma."
       >
-        <Select id="potential" value={potential} onChange={(event) => setPotential(event.target.value)}>
+        <Select
+          id="potential"
+          value={potential}
+          onChange={(event) => setPotential(event.target.value)}
+        >
           <option value="ALTO">Alto — retomaríamos pronto</option>
           <option value="MEDIO">Medio — posible más adelante</option>
           <option value="BAJO">Bajo — poco probable</option>
@@ -481,11 +596,11 @@ function AssignmentForm({
   }, [selected, rationale, scores, onChange]);
 
   if (!applications) {
-    return <p className="text-xs text-muted-foreground">Cargando postulaciones…</p>;
+    return <p className="text-sm text-muted-foreground">Cargando postulaciones…</p>;
   }
 
   if (applications.length === 0) {
-    return <p className="text-xs text-muted-foreground">No hay postulaciones para este caso.</p>;
+    return <p className="text-sm text-muted-foreground">No hay postulaciones para este caso.</p>;
   }
 
   const update = (applicationId: string, patch: Partial<Scores>): void => {
@@ -497,7 +612,7 @@ function AssignmentForm({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
+      <p className="text-sm leading-relaxed text-muted-foreground">
         Evalúe cada postulación y seleccione al consultor responsable principal. La evaluación
         completa queda registrada (plantilla T3D).
       </p>
@@ -516,17 +631,17 @@ function AssignmentForm({
           return (
             <label
               key={application.id}
-              className={`block cursor-pointer rounded-lg border p-3 transition-colors ${
+              className={`block cursor-pointer rounded-md border p-4 transition-colors ${
                 selected === application.id
-                  ? 'border-primary bg-accent/40'
-                  : 'border-border hover:bg-secondary/40'
+                  ? 'border-brand bg-brand-soft/50 shadow-focus'
+                  : 'border-border hover:border-border-strong hover:bg-muted/40'
               }`}
             >
               <div className="flex items-start gap-3">
                 <input
                   type="radio"
                   name="application"
-                  className="mt-1"
+                  className="mt-1 size-4 accent-brand"
                   checked={selected === application.id}
                   onChange={() => setSelected(application.id)}
                 />
@@ -536,12 +651,16 @@ function AssignmentForm({
                       <p className="truncate text-sm font-medium">
                         {application.consultant.fullName}
                       </p>
-                      <p className="font-mono text-2xs text-muted-foreground">
-                        {application.consultant.code} · {application.consultant.tier ?? 'sin nivel'}{' '}
-                        · {application.consultant.yearsOfExperience} años
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        <span className="code">{application.consultant.code}</span> ·{' '}
+                        {application.consultant.tier?.toLowerCase() ?? 'sin nivel'} ·{' '}
+                        {application.consultant.yearsOfExperience} años
                       </p>
                     </div>
-                    <span className="shrink-0 font-mono text-xs font-semibold">{total}/25</span>
+                    <span className="tabular shrink-0 text-lg font-semibold">
+                      {total}
+                      <span className="text-xs font-medium text-muted-foreground">/25</span>
+                    </span>
                   </div>
 
                   <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
@@ -559,13 +678,15 @@ function AssignmentForm({
                       ] as const
                     ).map(([key, label]) => (
                       <div key={key}>
-                        <span className="block text-2xs text-muted-foreground">{label}</span>
+                        <span className="mb-1 block text-2xs text-muted-foreground">{label}</span>
                         <Select
-                          className="h-7 text-xs"
+                          className="h-8 text-xs"
                           value={score?.[key] ?? 3}
                           onClick={(event) => event.stopPropagation()}
                           onChange={(event) =>
-                            update(application.id, { [key]: Number(event.target.value) } as Partial<Scores>)
+                            update(application.id, {
+                              [key]: Number(event.target.value),
+                            } as Partial<Scores>)
                           }
                         >
                           {[1, 2, 3, 4, 5].map((value) => (

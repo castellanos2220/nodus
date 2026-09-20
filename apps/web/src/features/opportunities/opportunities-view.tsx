@@ -4,11 +4,28 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertCircle, Briefcase, CalendarClock, CheckCircle2, Users } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowUpRight,
+  Briefcase,
+  CalendarClock,
+  CheckCircle2,
+  MapPin,
+  Users,
+} from 'lucide-react';
 import { ApiError, api } from '@/lib/api';
 import { formatRelative } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, Field, Skeleton, Textarea } from '@/components/ui/primitives';
+import {
+  Badge,
+  Card,
+  Checkbox,
+  EmptyState,
+  Field,
+  FormError,
+  Skeleton,
+  Textarea,
+} from '@/components/ui/primitives';
 import {
   Dialog,
   DialogBody,
@@ -54,7 +71,7 @@ export function OpportunitiesView() {
     return (
       <div className="grid gap-4 md:grid-cols-2">
         {Array.from({ length: 4 }).map((_, index) => (
-          <Skeleton key={index} className="h-56" />
+          <Skeleton key={index} className="h-64 rounded-md" />
         ))}
       </div>
     );
@@ -65,13 +82,11 @@ export function OpportunitiesView() {
       error instanceof ApiError ? error.message : 'No se pudieron cargar las oportunidades.';
     return (
       <Card>
-        <CardContent>
-          <EmptyState
-            icon={<AlertCircle className="size-8" />}
-            title="No fue posible acceder a la bolsa"
-            description={message}
-          />
-        </CardContent>
+        <EmptyState
+          icon={<AlertCircle />}
+          title="No fue posible acceder a la bolsa"
+          description={message}
+        />
       </Card>
     );
   }
@@ -79,93 +94,106 @@ export function OpportunitiesView() {
   if (!data || data.data.length === 0) {
     return (
       <Card>
-        <CardContent>
-          <EmptyState
-            icon={<Briefcase className="size-9" />}
-            title="No hay oportunidades elegibles ahora mismo"
-            description={
-              'Aparecerán aquí los casos publicados cuyo área, complejidad y tipo de intervención ' +
-              'estén dentro de su alcance habilitado.'
-            }
-          />
-        </CardContent>
+        <EmptyState
+          icon={<Briefcase />}
+          title="No hay oportunidades elegibles ahora mismo"
+          description={
+            'Aparecerán aquí los casos publicados cuyo área, complejidad y tipo de intervención ' +
+            'estén dentro de su alcance habilitado.'
+          }
+        />
       </Card>
     );
   }
 
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-2">
         {data.data.map((opportunity) => (
           <Card key={opportunity.caseId} className="flex flex-col">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <CardTitle className="truncate">{opportunity.title}</CardTitle>
-                  <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
-                    {opportunity.code} · {opportunity.city}, {opportunity.country}
-                  </p>
-                </div>
-                {opportunity.alreadyApplied && (
-                  <Badge tone="emerald" className="shrink-0">
+            <div className="flex flex-1 flex-col gap-4 p-6">
+              <div className="flex items-start justify-between gap-3">
+                <span className="code">{opportunity.code}</span>
+                {opportunity.alreadyApplied ? (
+                  <Badge tone="brand">
                     <CheckCircle2 className="size-3" aria-hidden /> Postulado
                   </Badge>
+                ) : (
+                  opportunity.applicationDeadline && (
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <CalendarClock className="size-3.5" aria-hidden />
+                      cierra {formatRelative(opportunity.applicationDeadline)}
+                    </span>
+                  )
                 )}
               </div>
-            </CardHeader>
 
-            <CardContent className="flex flex-1 flex-col gap-3">
-              <div className="flex flex-wrap gap-1.5">
-                {opportunity.areaCode && (
-                  <Badge tone="indigo">{label('AREA_PROBLEMA', opportunity.areaCode)}</Badge>
-                )}
-                {opportunity.interventionTypeCode && (
-                  <Badge tone="outline">
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold leading-snug">{opportunity.title}</h3>
+                <p className="line-clamp-3 text-sm leading-relaxed text-ink-2">
+                  {opportunity.summary}
+                </p>
+              </div>
+
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-4 text-sm">
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">Área</dt>
+                  <dd className="truncate text-ink-2">
+                    {label('AREA_PROBLEMA', opportunity.areaCode)}
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">Intervención</dt>
+                  <dd className="truncate text-ink-2">
                     {label('TIPO_INTERVENCION', opportunity.interventionTypeCode)}
-                  </Badge>
-                )}
-                {opportunity.complexityCode && (
-                  <Badge tone="violet">
-                    Complejidad {label('COMPLEJIDAD', opportunity.complexityCode).toLowerCase()}
-                  </Badge>
-                )}
-                {opportunity.impactCode && (
-                  <Badge tone={opportunity.impactCode === 'CRITICO' ? 'rose' : 'amber'}>
-                    Impacto {label('IMPACTO', opportunity.impactCode).toLowerCase()}
-                  </Badge>
-                )}
-              </div>
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">Complejidad</dt>
+                  <dd className="truncate text-ink-2">
+                    {label('COMPLEJIDAD', opportunity.complexityCode)}
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">Impacto</dt>
+                  <dd
+                    className={
+                      opportunity.impactCode === 'CRITICO'
+                        ? 'truncate font-medium text-danger'
+                        : 'truncate text-ink-2'
+                    }
+                  >
+                    {label('IMPACTO', opportunity.impactCode)}
+                  </dd>
+                </div>
+              </dl>
 
-              <p className="flex-1 text-sm leading-relaxed text-muted-foreground">
-                {opportunity.summary}
-              </p>
-
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-2xs text-muted-foreground">
+              <p className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
-                  <Users className="size-3" aria-hidden /> {opportunity.applicationsCount}{' '}
+                  <MapPin className="size-3.5" aria-hidden /> {opportunity.city},{' '}
+                  {opportunity.country}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Users className="size-3.5" aria-hidden /> {opportunity.applicationsCount}{' '}
                   postulación{opportunity.applicationsCount === 1 ? '' : 'es'}
                 </span>
-                {opportunity.applicationDeadline && (
-                  <span className="inline-flex items-center gap-1">
-                    <CalendarClock className="size-3" aria-hidden /> cierra{' '}
-                    {formatRelative(opportunity.applicationDeadline)}
-                  </span>
-                )}
-              </div>
+              </p>
+            </div>
 
-              <div className="flex gap-2">
-                <Button
-                  className="flex-1"
-                  disabled={opportunity.alreadyApplied}
-                  onClick={() => setApplyTo(opportunity)}
-                >
-                  {opportunity.alreadyApplied ? 'Ya se ha postulado' : 'Postularme'}
-                </Button>
-                <Button variant="outline" asChild>
-                  <Link href={`/cases/${opportunity.caseId}`}>Ver caso</Link>
-                </Button>
-              </div>
-            </CardContent>
+            <div className="flex gap-2 border-t border-border px-6 py-4">
+              <Button
+                className="flex-1"
+                disabled={opportunity.alreadyApplied}
+                onClick={() => setApplyTo(opportunity)}
+              >
+                {opportunity.alreadyApplied ? 'Ya se ha postulado' : 'Postularme'}
+              </Button>
+              <Button variant="secondary" asChild>
+                <Link href={`/cases/${opportunity.caseId}`}>
+                  Ver caso <ArrowUpRight />
+                </Link>
+              </Button>
+            </div>
           </Card>
         ))}
       </div>
@@ -176,13 +204,7 @@ export function OpportunitiesView() {
 }
 
 /** T3C — postulación estructurada. Los mínimos los impone también el backend. */
-function ApplyDialog({
-  opportunity,
-  onClose,
-}: {
-  opportunity: Opportunity;
-  onClose: () => void;
-}) {
+function ApplyDialog({ opportunity, onClose }: { opportunity: Opportunity; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [form, setForm] = React.useState({
     interestStatement: '',
@@ -225,8 +247,7 @@ function ApplyDialog({
     ['preliminaryApproach', 40],
   ];
 
-  const valid =
-    accepts && minimums.every(([key, min]) => form[key].trim().length >= min);
+  const valid = accepts && minimums.every(([key, min]) => form[key].trim().length >= min);
 
   const remaining = (key: keyof typeof form, min: number): string | undefined => {
     const length = form[key].trim().length;
@@ -321,32 +342,24 @@ function ApplyDialog({
             />
           </Field>
 
-          <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/40 p-3">
-            <input
-              type="checkbox"
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background p-4">
+            <Checkbox
               className="mt-0.5"
               checked={accepts}
               onChange={(event) => setAccepts(event.target.checked)}
             />
-            <span className="text-xs leading-relaxed">
+            <span className="text-xs leading-relaxed text-ink-2">
               Acepto las condiciones metodológicas de la plataforma: uso de plantillas oficiales,
-              registro de la interacción en bitácora y ausencia de canal directo con la Mipyme
-              fuera del proceso controlado.
+              registro de la interacción en bitácora y ausencia de canal directo con la Mipyme fuera
+              del proceso controlado.
             </span>
           </label>
 
-          {serverError && (
-            <p
-              className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
-              role="alert"
-            >
-              {serverError}
-            </p>
-          )}
+          {serverError && <FormError>{serverError}</FormError>}
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
+          <Button variant="secondary" onClick={onClose} disabled={mutation.isPending}>
             Cancelar
           </Button>
           <Button

@@ -8,7 +8,7 @@ export default function SlaPage() {
   return (
     <>
       <PageHeader
-        title="Control de niveles de servicio"
+        title="Niveles de servicio"
         description={
           'Ninguna duración está escrita en código: las reglas son filas de base de datos y se ' +
           'resuelven por especificidad (etapa más dimensiones coincidentes) en tiempo de ejecución.'

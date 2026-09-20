@@ -4,297 +4,167 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { Role } from '@nodus/types';
-import {
-  AlertTriangle,
-  ArrowLeft,
-  Building2,
-  CalendarClock,
-  FileText,
-  ShieldAlert,
-  UserRound,
-} from 'lucide-react';
+import { ArrowLeft, EyeOff, Mail, Phone } from 'lucide-react';
 import { ApiError, api } from '@/lib/api';
-import { cn, formatDate, formatDateTime, formatRelative } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  DefItem,
-  Skeleton,
-} from '@/components/ui/primitives';
-import { CaseProgress, CaseStatusBadge, SlaBadge } from '@/components/ui/status';
-import { useLookupLabel } from '@/features/lookups/use-lookups';
-import type { CaseDetail } from '../types';
-import { TransitionPanel } from './transition-panel';
-import { CaseTabs } from './case-tabs';
+import { EmptyState, InlineNotice, Panel, Skeleton } from '@/components/ui/primitives';
+import { UserAvatar } from '@/components/ui/avatar';
+import type { CaseDetail, StatusHistoryEntry } from '../types';
+import { CaseHeader } from './case-header';
+import { CaseTabs, type CaseTabId } from './case-tabs';
+import { NextStepPanel } from './transition-panel';
 
+/**
+ * Case Workspace: el centro operativo de NODUS.
+ *
+ *   cabecera   qué caso es, de quién, estado, responsable, SLA, recorrido
+ *   pestañas   el trabajo del caso, en el orden en que avanza
+ *   lateral    siguiente paso (acción, espera o bloqueo) y contacto
+ *
+ * El usuario debe entender el caso sin salir de esta pantalla.
+ */
 export function CaseDetailView({ caseId, role }: { caseId: string; role: Role }) {
-  const label = useLookupLabel();
+  const [tab, setTab] = React.useState<CaseTabId>('overview');
 
-  const { data: kase, isLoading, error } = useQuery({
+  const {
+    data: kase,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['case', caseId],
     queryFn: () => api.get<CaseDetail>(`/cases/${caseId}`),
   });
 
+  // Misma clave que la pestaña Workflow: una sola petición para cabecera y pestaña.
+  const { data: history } = useQuery({
+    queryKey: ['case', caseId, 'status-history'],
+    queryFn: () => api.get<StatusHistoryEntry[]>(`/cases/${caseId}/status-history`),
+    enabled: Boolean(kase),
+  });
+
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-28" />
-        <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="space-y-6" aria-busy="true" aria-label="Cargando el caso">
+        <div className="space-y-3 border-b border-border pb-5">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-8 w-2/3" />
+          <Skeleton className="h-4 w-64" />
+          <div className="grid grid-cols-4 gap-6 pt-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-10" />
+            ))}
+          </div>
+          <Skeleton className="h-5 w-full" />
+        </div>
+        <Skeleton className="h-10 w-full" />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           <Skeleton className="h-96" />
-          <Skeleton className="h-64" />
+          <Skeleton className="h-56" />
         </div>
       </div>
     );
   }
 
   if (error || !kase) {
-    const message =
-      error instanceof ApiError
-        ? error.status === 404
-          ? 'Este caso no existe o no tiene acceso a él.'
-          : error.message
-        : 'No se pudo cargar el caso.';
-
+    const notFound = error instanceof ApiError && error.status === 404;
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
-          <ShieldAlert className="size-9 text-muted-foreground/60" aria-hidden />
-          <p className="text-sm font-medium">{message}</p>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/cases">
-              <ArrowLeft /> Volver a casos
-            </Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <Panel>
+        <EmptyState
+          title={
+            notFound ? 'Este caso no existe o no tiene acceso a él' : 'No se pudo cargar el caso'
+          }
+          description={
+            notFound
+              ? 'Puede que el enlace sea incorrecto o que su rol no tenga visibilidad sobre este caso.'
+              : error instanceof ApiError
+                ? error.message
+                : 'La conexión con el servidor falló.'
+          }
+          action={
+            <div className="flex gap-2">
+              {!notFound && (
+                <Button variant="secondary" size="sm" onClick={() => void refetch()}>
+                  Reintentar
+                </Button>
+              )}
+              <Button variant="secondary" size="sm" asChild>
+                <Link href="/cases">
+                  <ArrowLeft /> Volver a casos
+                </Link>
+              </Button>
+            </div>
+          }
+        />
+      </Panel>
     );
   }
 
   const redacted = kase.accessLevel === 'REDACTED';
+  const enteredCurrent = history?.[history.length - 1]?.createdAt ?? kase.createdAt;
 
   return (
-    <div className="space-y-5">
-      {/* ------------------------------------------------------- Encabezado -- */}
-      <div className="space-y-3">
-        <Link
-          href="/cases"
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" aria-hidden /> Casos
-        </Link>
-
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-xs text-muted-foreground">{kase.code}</span>
-              <CaseStatusBadge status={kase.status} />
-              {kase.counts.incidents > 0 && (
-                <span className="inline-flex items-center gap-1 text-2xs font-medium text-destructive">
-                  <AlertTriangle className="size-3" aria-hidden />
-                  {kase.counts.incidents} incidencia{kase.counts.incidents === 1 ? '' : 's'}
-                </span>
-              )}
-            </div>
-            <h1 className="max-w-3xl text-xl font-semibold leading-tight">{kase.title}</h1>
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Building2 className="size-3.5" aria-hidden />
-              {redacted ? (
-                <span className="italic">Identidad de la empresa reservada</span>
-              ) : (
-                <Link href={`/companies/${kase.company.id}`} className="hover:underline">
-                  {kase.company.name}
-                </Link>
-              )}
-              <span className="text-muted-foreground/50">·</span>
-              {kase.company.city}, {kase.company.country}
-            </p>
-          </div>
-
-          <div className="w-full max-w-[220px] shrink-0 space-y-1.5">
-            <p className="label-caps">Avance del ciclo</p>
-            <CaseProgress percent={kase.progressPercent} />
-            <p className="text-2xs text-muted-foreground">
-              Registrado {formatRelative(kase.createdAt)}
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <CaseHeader kase={kase} history={history} onOpenWorkflow={() => setTab('workflow')} />
 
       {redacted && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5">
-          <FileText className="mt-px size-4 shrink-0 text-amber-700" aria-hidden />
-          <p className="text-xs leading-relaxed text-amber-900">
-            Está viendo la <strong>versión controlada</strong> del caso. La bolsa interna no expone
-            la identidad ni la información sensible del cliente hasta que exista una asignación
-            formal.
-          </p>
-        </div>
+        <InlineNotice tone="info" title="Versión controlada del caso">
+          La bolsa interna no expone la identidad ni la información sensible del cliente hasta que
+          exista una asignación formal.
+        </InlineNotice>
       )}
 
-      {/* ------------------------------------------- Cuerpo: contenido + panel -- */}
-      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-w-0 space-y-5">
-          <CaseTabs kase={kase} role={role} />
-        </div>
+      <CaseTabs
+        kase={kase}
+        role={role}
+        history={history}
+        tab={tab}
+        onTabChange={setTab}
+        aside={
+          <>
+            <NextStepPanel kase={kase} enteredCurrentAt={enteredCurrent} />
 
-        <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
-          <TransitionPanel kase={kase} />
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Ficha del caso</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="space-y-3.5">
-                <DefItem label="Área">{label('AREA_PROBLEMA', kase.areaCode)}</DefItem>
-                {kase.subAreaCode && (
-                  <DefItem label="Subárea">{label('SUBAREA', kase.subAreaCode)}</DefItem>
-                )}
-                <DefItem label="Tipo de intervención">
-                  {label('TIPO_INTERVENCION', kase.interventionTypeCode)}
-                </DefItem>
-                <DefItem label="Complejidad">{label('COMPLEJIDAD', kase.complexityCode)}</DefItem>
-                <DefItem label="Urgencia">{label('URGENCIA', kase.urgencyCode)}</DefItem>
-                <DefItem label="Impacto">{label('IMPACTO', kase.impactCode)}</DefItem>
-
-                <div className="border-t border-border pt-3.5">
-                  <DefItem label="Consultor responsable">
-                    {kase.leadConsultant ? (
-                      <span className="flex items-center gap-1.5">
-                        <UserRound className="size-3.5 text-muted-foreground" aria-hidden />
-                        {kase.leadConsultant.user.fullName}
-                        <span className="font-mono text-2xs text-muted-foreground">
-                          {kase.leadConsultant.code}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">Sin asignar</span>
-                    )}
-                  </DefItem>
-                </div>
-
-                {!redacted && kase.contact && (
-                  <DefItem label="Contacto del cliente">
-                    <span className="block">{kase.contact.fullName}</span>
-                    <span className="block text-xs text-muted-foreground">
+            {!redacted && kase.contact && (
+              <section className="surface space-y-3 px-5 py-4" aria-labelledby="contact-title">
+                <h2 id="contact-title" className="text-h3">
+                  Contacto del cliente
+                </h2>
+                <div className="flex items-center gap-2.5">
+                  <UserAvatar name={kase.contact.fullName} />
+                  <div className="min-w-0">
+                    <p className="truncate text-body-sm font-medium">{kase.contact.fullName}</p>
+                    <p className="truncate text-caption text-muted-foreground">
                       {kase.contact.jobTitle}
-                    </span>
-                    <a
-                      href={`mailto:${kase.contact.email}`}
-                      className="block text-xs text-muted-foreground hover:underline"
-                    >
-                      {kase.contact.email}
-                    </a>
-                  </DefItem>
-                )}
-              </dl>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CalendarClock className="size-4 text-muted-foreground" aria-hidden />
-                SLA de la etapa
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {kase.sla ? (
-                <>
-                  <SlaBadge status={kase.sla.status} percent={kase.sla.percentConsumed} />
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-                    <div
-                      className={cn(
-                        'h-full rounded-full transition-all',
-                        kase.sla.status === 'OVERDUE'
-                          ? 'bg-destructive'
-                          : kase.sla.status === 'AT_RISK'
-                            ? 'bg-warning'
-                            : 'bg-success',
-                      )}
-                      style={{ width: `${Math.min(100, kase.sla.percentConsumed)}%` }}
-                    />
+                    </p>
                   </div>
-                  <dl className="space-y-2">
-                    <DefItem label="Regla aplicada">
-                      <span className="text-xs">{kase.sla.rule.name}</span>
-                    </DefItem>
-                    <DefItem label="Vence">
-                      <span className="text-xs">{formatDateTime(kase.sla.deadline)}</span>
-                      <span className="block text-2xs text-muted-foreground">
-                        {formatRelative(kase.sla.deadline)}
-                      </span>
-                    </DefItem>
-                  </dl>
-                </>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  No hay un reloj de SLA abierto para el estado actual.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+                </div>
+                <div className="space-y-1 text-body-sm">
+                  <a
+                    href={`mailto:${kase.contact.email}`}
+                    className="flex items-center gap-2 text-ink-2 hover:text-brand-strong"
+                  >
+                    <Mail className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="truncate">{kase.contact.email}</span>
+                  </a>
+                  {kase.contact.phone && (
+                    <p className="flex items-center gap-2 text-ink-2">
+                      <Phone className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      {kase.contact.phone}
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Hitos del expediente</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="space-y-2.5 text-xs">
-                <Milestone label="Registro" value={formatDate(kase.createdAt)} done />
-                <Milestone
-                  label="Publicación en bolsa"
-                  value={kase.publishedAt ? formatDate(kase.publishedAt) : 'Pendiente'}
-                  done={Boolean(kase.publishedAt)}
-                />
-                <Milestone
-                  label="Decisión del cliente"
-                  value={kase.decisionOpenedAt ? formatDate(kase.decisionOpenedAt) : 'Pendiente'}
-                  done={Boolean(kase.decisionOpenedAt)}
-                />
-                <Milestone
-                  label="Autorización de ejecución"
-                  value={kase.authorizedAt ? formatDate(kase.authorizedAt) : 'Pendiente'}
-                  done={Boolean(kase.authorizedAt)}
-                />
-                <Milestone
-                  label="Inicio de ejecución"
-                  value={
-                    kase.executionStartedAt ? formatDate(kase.executionStartedAt) : 'Pendiente'
-                  }
-                  done={Boolean(kase.executionStartedAt)}
-                />
-                <Milestone
-                  label="Cierre"
-                  value={kase.closedAt ? formatDate(kase.closedAt) : 'Pendiente'}
-                  done={Boolean(kase.closedAt)}
-                />
-              </dl>
-            </CardContent>
-          </Card>
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function Milestone({ label, value, done }: { label: string; value: string; done: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={cn(
-          'size-1.5 shrink-0 rounded-full',
-          done ? 'bg-success' : 'bg-border',
-        )}
-        aria-hidden
+            {redacted && (
+              <p className="flex items-start gap-2 px-1 text-caption text-muted-foreground">
+                <EyeOff className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                Los datos de contacto se muestran tras la asignación formal.
+              </p>
+            )}
+          </>
+        }
       />
-      <span className="min-w-0 flex-1 truncate text-muted-foreground">{label}</span>
-      <span className={cn('shrink-0 tabular-nums', done ? 'font-medium' : 'text-muted-foreground')}>
-        {value}
-      </span>
     </div>
   );
 }

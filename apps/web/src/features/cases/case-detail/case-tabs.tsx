@@ -3,116 +3,133 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Role } from '@nodus/types';
-import { CASE_STATUS_LABEL } from '@nodus/types';
-import {
-  Activity as ActivityIcon,
-  ArrowRight,
-  Bot,
-  CheckCircle2,
-  CircleDashed,
-  ClipboardCheck,
-  FileStack,
-  FileText,
-  Flag,
-  MessageSquare,
-  Package,
-  ScrollText,
-  Users,
-} from 'lucide-react';
+import { CheckCircle2, CircleDashed, FileText, Lock, TriangleAlert } from 'lucide-react';
 import { api } from '@/lib/api';
-import { cn, formatDate, formatDateTime, formatRelative } from '@/lib/utils';
-import { Badge, Card, CardContent, CardHeader, CardTitle, DefItem, EmptyState, Skeleton, TBody, TD, TH, THead, TR, Table } from '@/components/ui/primitives';
-import { CaseStatusBadge } from '@/components/ui/status';
+import { cn, formatDate, formatDateTime, formatRelative, humanizeCode } from '@/lib/utils';
+import {
+  Badge,
+  DefItem,
+  EmptyState,
+  ErrorState,
+  Panel,
+  Section,
+  Skeleton,
+  TBody,
+  TD,
+  TH,
+  THead,
+  TR,
+  Table,
+  TableSkeleton,
+} from '@/components/ui/primitives';
+import { Tabs, type TabItem } from '@/components/ui/tabs';
+import { SegmentedControl } from '@/components/ui/segmented';
+import { PersonCell, SystemAvatar, UserAvatar } from '@/components/ui/avatar';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useLookupLabel } from '@/features/lookups/use-lookups';
 import type { CaseDetail, StatusHistoryEntry, TimelineEntry } from '../types';
+import { WorkflowStepper } from '../workflow-stepper';
+import { CaseTimeline } from './case-timeline';
 
-type TabId =
+export type CaseTabId =
   | 'overview'
-  | 'timeline'
+  | 'workflow'
   | 'applications'
   | 'proposal'
   | 'contract'
   | 'execution'
   | 'documents'
-  | 'communications';
+  | 'communications'
+  | 'audit';
 
-interface TabDefinition {
-  id: TabId;
-  label: string;
-  icon: typeof FileText;
-  /** `null` = siempre visible; si no, se muestra cuando el contador es > 0. */
-  count?: number | null;
-}
-
-export function CaseTabs({ kase, role }: { kase: CaseDetail; role: Role }) {
-  const [tab, setTab] = React.useState<TabId>('overview');
-
-  const tabs: TabDefinition[] = [
-    { id: 'overview', label: 'Resumen', icon: FileText },
-    { id: 'timeline', label: 'Trazabilidad', icon: ScrollText },
-    { id: 'applications', label: 'Postulaciones', icon: Users, count: kase.counts.applications },
-    { id: 'proposal', label: 'Propuesta', icon: FileStack, count: kase.counts.proposalVersions },
-    { id: 'contract', label: 'Contratación', icon: ClipboardCheck },
+/**
+ * Pestañas del Case Workspace y la columna lateral.
+ *
+ * Nueve pestañas, en el orden en que avanza un caso. La Auditoría es una
+ * pestaña propia —trazabilidad formal e inmodificable—, no una vista de
+ * actividad: la actividad reciente vive en el Resumen.
+ */
+export function CaseTabs({
+  kase,
+  role,
+  history,
+  tab,
+  onTabChange,
+  aside,
+}: {
+  kase: CaseDetail;
+  role: Role;
+  history: StatusHistoryEntry[] | undefined;
+  tab: CaseTabId;
+  onTabChange: (tab: CaseTabId) => void;
+  /** Columna lateral (siguiente paso, contacto): comparte fila con el panel activo. */
+  aside: React.ReactNode;
+}) {
+  const tabs: TabItem<CaseTabId>[] = [
+    { id: 'overview', label: 'Resumen' },
+    { id: 'workflow', label: 'Workflow', count: history?.length },
+    { id: 'applications', label: 'Postulaciones', count: kase.counts.applications },
+    { id: 'proposal', label: 'Propuesta', count: kase.counts.proposalVersions },
+    { id: 'contract', label: 'Contratación' },
     {
       id: 'execution',
       label: 'Ejecución',
-      icon: ActivityIcon,
-      count: kase.counts.activities + kase.counts.milestones + kase.counts.deliverables,
+      count:
+        kase.counts.activities +
+        kase.counts.milestones +
+        kase.counts.deliverables +
+        kase.counts.incidents,
     },
-    { id: 'documents', label: 'Documentos', icon: Package, count: kase.counts.documents },
+    { id: 'documents', label: 'Documentos', count: kase.counts.documents },
     {
       id: 'communications',
       label: 'Comunicaciones',
-      icon: MessageSquare,
       count: kase.counts.communications + kase.counts.meetings,
     },
+    { id: 'audit', label: 'Auditoría' },
   ];
 
   return (
-    <div className="space-y-4">
-      {/* Navegación de pestañas: scroll horizontal propio en pantallas estrechas. */}
-      <div className="scroll-x border-b border-border">
-        <div className="flex min-w-max gap-0.5" role="tablist">
-          {tabs.map((definition) => {
-            const active = tab === definition.id;
-            return (
-              <button
-                key={definition.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setTab(definition.id)}
-                className={cn(
-                  'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm transition-colors',
-                  active
-                    ? 'border-primary font-medium text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <definition.icon className="size-4" aria-hidden />
-                {definition.label}
-                {typeof definition.count === 'number' && definition.count > 0 && (
-                  <span className="rounded bg-secondary px-1.5 py-px font-mono text-2xs">
-                    {definition.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+    <div className="space-y-6">
+      <Tabs items={tabs} value={tab} onValueChange={onTabChange} layoutId="case-tabs" />
 
-      <div role="tabpanel" className="animate-fade-in">
-        {tab === 'overview' && <OverviewTab kase={kase} />}
-        {tab === 'timeline' && <TimelineTab caseId={kase.id} />}
-        {tab === 'applications' && <ApplicationsTab caseId={kase.id} role={role} />}
-        {tab === 'proposal' && <ProposalTab caseId={kase.id} />}
-        {tab === 'contract' && <ContractTab caseId={kase.id} />}
-        {tab === 'execution' && <ExecutionTab caseId={kase.id} />}
-        {tab === 'documents' && <DocumentsTab caseId={kase.id} />}
-        {tab === 'communications' && <CommunicationsTab caseId={kase.id} />}
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div role="tabpanel" className="min-w-0">
+          {tab === 'overview' && <OverviewTab kase={kase} onTabChange={onTabChange} />}
+          {tab === 'workflow' && <WorkflowTab kase={kase} history={history} />}
+          {tab === 'applications' && <ApplicationsTab caseId={kase.id} role={role} />}
+          {tab === 'proposal' && <ProposalTab caseId={kase.id} />}
+          {tab === 'contract' && <ContractTab caseId={kase.id} />}
+          {tab === 'execution' && <ExecutionTab caseId={kase.id} />}
+          {tab === 'documents' && <DocumentsTab caseId={kase.id} />}
+          {tab === 'communications' && <CommunicationsTab caseId={kase.id} />}
+          {tab === 'audit' && <AuditTab caseId={kase.id} />}
+        </div>
+
+        <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">{aside}</aside>
       </div>
     </div>
+  );
+}
+
+/** Estado vacío dentro de un panel: el patrón de todas las pestañas. */
+function EmptyPanel(props: React.ComponentProps<typeof EmptyState>) {
+  return (
+    <Panel>
+      <EmptyState {...props} />
+    </Panel>
+  );
+}
+
+function LoadError({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <Panel>
+      <ErrorState
+        title={`No se pudo cargar ${what}`}
+        message="La conexión con el servidor falló o la respuesta no fue válida."
+        onRetry={onRetry}
+      />
+    </Panel>
   );
 }
 
@@ -120,36 +137,53 @@ export function CaseTabs({ kase, role }: { kase: CaseDetail; role: Role }) {
 //  Resumen
 // ============================================================================
 
-function OverviewTab({ kase }: { kase: CaseDetail }) {
+function OverviewTab({
+  kase,
+  onTabChange,
+}: {
+  kase: CaseDetail;
+  onTabChange: (tab: CaseTabId) => void;
+}) {
   const label = useLookupLabel();
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Necesidad registrada</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Plantilla T1 · el relato original del cliente no se modifica
-          </p>
-        </CardHeader>
-        <CardContent>
-          <p className="whitespace-pre-line text-sm leading-relaxed">{kase.description}</p>
-        </CardContent>
-      </Card>
+    <div className="space-y-8">
+      <Section
+        title="Necesidad registrada"
+        description="Relato original del cliente (T1). No se modifica."
+      >
+        <p className="max-w-prose whitespace-pre-line text-prose text-ink-2">{kase.description}</p>
+      </Section>
 
-      {kase.classification ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Clasificación (T2)</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Registrada por {kase.classification.classifiedBy?.fullName ?? 'Advisory'} ·{' '}
-              {formatDate(kase.classification.createdAt)}
-              {kase.classification.confirmedAt && ' · confirmada'}
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <dl className="grid gap-4 sm:grid-cols-3">
-              <DefItem label="Área">{label('AREA_PROBLEMA', kase.classification.areaCode)}</DefItem>
+      <Section
+        title="Clasificación"
+        description={
+          kase.classification
+            ? `T2 · ${kase.classification.classifiedBy?.fullName ?? 'Advisory'} · ${formatDate(kase.classification.createdAt)}${kase.classification.confirmedAt ? ' · confirmada' : ''}`
+            : undefined
+        }
+        actions={
+          kase.classification && (
+            <Badge
+              tone={kase.classification.eligibility === 'ELEGIBLE' ? 'success' : 'neutral'}
+              dot
+            >
+              {humanizeCode(kase.classification.eligibility)}
+            </Badge>
+          )
+        }
+      >
+        {kase.classification ? (
+          <div className="space-y-4">
+            <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
+              <DefItem label="Área">
+                {label('AREA_PROBLEMA', kase.classification.areaCode)}
+                {kase.subAreaCode && (
+                  <span className="block text-caption text-muted-foreground">
+                    {label('SUBAREA', kase.subAreaCode)}
+                  </span>
+                )}
+              </DefItem>
               <DefItem label="Tipo de intervención">
                 {label('TIPO_INTERVENCION', kase.classification.interventionTypeCode)}
               </DefItem>
@@ -157,211 +191,325 @@ function OverviewTab({ kase }: { kase: CaseDetail }) {
                 {label('COMPLEJIDAD', kase.classification.complexityCode)}
               </DefItem>
               <DefItem label="Impacto">{label('IMPACTO', kase.classification.impactCode)}</DefItem>
-              <DefItem label="Urgencia">{label('URGENCIA', kase.classification.urgencyCode)}</DefItem>
-              <DefItem label="Elegibilidad">
-                <Badge tone={kase.classification.eligibility === 'ELEGIBLE' ? 'emerald' : 'rose'}>
-                  {kase.classification.eligibility.replace(/_/g, ' ').toLowerCase()}
-                </Badge>
+              <DefItem label="Urgencia">
+                {label('URGENCIA', kase.classification.urgencyCode)}
               </DefItem>
+              <DefItem label="Avance del ciclo">{kase.progressPercent}%</DefItem>
             </dl>
-
-            <div className="border-t border-border pt-4">
-              <p className="label-caps mb-1.5">Observaciones de la revisión</p>
-              <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+            <div className="max-w-prose rounded-sm bg-muted px-4 py-3">
+              <p className="text-caption text-muted-foreground">Observaciones de la revisión</p>
+              <p className="mt-1 whitespace-pre-line text-body-sm leading-relaxed text-ink-2">
                 {kase.classification.reviewNotes}
               </p>
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardContent>
-            <EmptyState
-              icon={<CircleDashed className="size-8" />}
-              title="El caso aún no ha sido clasificado"
-              description="Advisory registrará la clasificación T2 durante la debida diligencia."
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      <StatusHistoryCard caseId={kase.id} />
+          </div>
+        ) : (
+          <p className="text-body-sm text-muted-foreground">
+            Aún sin clasificar. Advisory registra la clasificación T2 durante la debida diligencia;
+            hasta entonces el caso no puede publicarse en la bolsa.
+          </p>
+        )}
+      </Section>
 
       {kase.closedAt && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Cierre del caso</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <DefItem label="Fecha de cierre">{formatDateTime(kase.closedAt)}</DefItem>
-              <DefItem label="Motivo">{kase.closureReason ?? '—'}</DefItem>
-            </dl>
-          </CardContent>
-        </Card>
+        <Section title="Cierre">
+          <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-[200px_minmax(0,1fr)]">
+            <DefItem label="Fecha de cierre">{formatDateTime(kase.closedAt)}</DefItem>
+            <DefItem label="Motivo">{kase.closureReason ?? '—'}</DefItem>
+          </dl>
+        </Section>
       )}
+
+      <RecentActivity caseId={kase.id} onOpenAudit={() => onTabChange('audit')} />
+      <RecentDocuments caseId={kase.id} onOpenDocuments={() => onTabChange('documents')} />
     </div>
   );
 }
 
-function StatusHistoryCard({ caseId }: { caseId: string }) {
-  const { data } = useQuery({
-    queryKey: ['case', caseId, 'status-history'],
-    queryFn: () => api.get<StatusHistoryEntry[]>(`/cases/${caseId}/status-history`),
-  });
-
-  if (!data || data.length === 0) return null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Recorrido por los estados</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Con el tiempo permanecido en cada etapa, base de los indicadores de ciclo
-        </p>
-      </CardHeader>
-      <CardContent className="p-0">
-        <Table>
-          <THead>
-            <TR className="hover:bg-transparent">
-              <TH>Transición</TH>
-              <TH>Desde → Hacia</TH>
-              <TH>Actor</TH>
-              <TH className="text-right">Permanencia</TH>
-              <TH className="text-right">Fecha</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {data.map((entry) => (
-              <TR key={entry.id}>
-                <TD>
-                  <span className="font-mono text-2xs">{entry.transitionCode}</span>
-                  {entry.note && (
-                    <span className="mt-0.5 block max-w-sm truncate text-2xs text-muted-foreground">
-                      {entry.note}
-                    </span>
-                  )}
-                </TD>
-                <TD>
-                  <span className="flex items-center gap-1.5">
-                    {entry.previousStatus ? (
-                      <span className="text-2xs text-muted-foreground">
-                        {CASE_STATUS_LABEL[entry.previousStatus]}
-                      </span>
-                    ) : (
-                      <span className="text-2xs text-muted-foreground">—</span>
-                    )}
-                    <ArrowRight className="size-3 text-muted-foreground/60" aria-hidden />
-                    <CaseStatusBadge status={entry.newStatus} />
-                  </span>
-                </TD>
-                <TD>
-                  {entry.origin === 'SYSTEM' ? (
-                    <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
-                      <Bot className="size-3" aria-hidden /> Sistema
-                    </span>
-                  ) : (
-                    <span className="text-xs">{entry.actor?.fullName ?? '—'}</span>
-                  )}
-                </TD>
-                <TD className="text-right font-mono text-2xs tabular-nums text-muted-foreground">
-                  {entry.hoursInPreviousStatus
-                    ? `${Number(entry.hoursInPreviousStatus).toFixed(1)} h`
-                    : '—'}
-                </TD>
-                <TD className="whitespace-nowrap text-right text-2xs text-muted-foreground">
-                  {formatDateTime(entry.createdAt)}
-                </TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ============================================================================
-//  Trazabilidad (bitácora)
-// ============================================================================
-
-function TimelineTab({ caseId }: { caseId: string }) {
-  const { data, isLoading } = useQuery({
+/** Los cinco eventos más recientes de la bitácora, para entender qué pasó sin salir del resumen. */
+function RecentActivity({ caseId, onOpenAudit }: { caseId: string; onOpenAudit: () => void }) {
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['case', caseId, 'timeline'],
     queryFn: () => api.get<TimelineEntry[]>(`/cases/${caseId}/timeline`),
   });
 
-  if (isLoading) return <Skeleton className="h-96" />;
+  const recent = (data ?? []).slice(0, 5);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Bitácora del caso</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Registro inmutable: no puede modificarse ni eliminarse desde la aplicación
-        </p>
-      </CardHeader>
-      <CardContent>
-        {data && data.length > 0 ? (
-          <ol className="relative space-y-4 border-l border-border pl-5">
-            {data.map((entry) => (
-              <li key={entry.id} className="relative">
-                <span
-                  className={cn(
-                    'absolute -left-[26px] top-1 size-2.5 rounded-full border-2 border-card',
-                    entry.origin === 'SYSTEM' ? 'bg-muted-foreground/50' : 'bg-primary',
-                  )}
-                  aria-hidden
-                />
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="text-sm font-medium">{entry.actionLabel}</p>
-                  <time className="shrink-0 text-2xs text-muted-foreground">
-                    {formatDateTime(entry.createdAt)}
-                  </time>
+    <Section
+      title="Actividad reciente"
+      actions={
+        <button type="button" onClick={onOpenAudit} className="link text-body-sm">
+          Ver auditoría completa
+        </button>
+      }
+    >
+      <Panel>
+        {isLoading ? (
+          <TableSkeleton rows={4} columns={3} />
+        ) : error ? (
+          <ErrorState title="No se pudo cargar la actividad" onRetry={() => void refetch()} />
+        ) : recent.length === 0 ? (
+          <EmptyState title="Sin actividad registrada todavía" />
+        ) : (
+          <ul className="divide-y divide-border-subtle">
+            {recent.map((entry) => (
+              <li key={entry.id} className="flex items-center gap-3 px-5 py-2.5">
+                {entry.origin === 'SYSTEM' ? (
+                  <SystemAvatar size="sm" />
+                ) : (
+                  <UserAvatar name={entry.actor?.fullName ?? 'Usuario'} size="sm" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-body-sm text-foreground">{entry.actionLabel}</p>
+                  <p className="truncate text-caption text-muted-foreground">
+                    {entry.origin === 'SYSTEM' ? 'Sistema' : (entry.actor?.fullName ?? 'Usuario')}
+                  </p>
                 </div>
-                <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
-                  {entry.origin === 'SYSTEM' ? (
-                    <span className="inline-flex items-center gap-1">
-                      <Bot className="size-3" aria-hidden /> Sistema
-                    </span>
-                  ) : (
-                    <span>{entry.actor?.fullName ?? 'Usuario'}</span>
-                  )}
-                  <span className="text-muted-foreground/50">·</span>
-                  <span className="font-mono">{entry.entity}</span>
-                </p>
-                {renderAuditDelta(entry)}
+                <Tooltip content={formatDateTime(entry.createdAt)}>
+                  <time
+                    dateTime={entry.createdAt}
+                    className="shrink-0 text-caption text-muted-foreground"
+                  >
+                    {formatRelative(entry.createdAt)}
+                  </time>
+                </Tooltip>
               </li>
             ))}
-          </ol>
-        ) : (
-          <EmptyState title="Sin eventos registrados todavía" />
+          </ul>
         )}
-      </CardContent>
-    </Card>
+      </Panel>
+    </Section>
   );
 }
 
-/** Muestra el delta auditado de forma legible, sin volcar todo el JSON. */
+function RecentDocuments({
+  caseId,
+  onOpenDocuments,
+}: {
+  caseId: string;
+  onOpenDocuments: () => void;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['case', caseId, 'documents'],
+    queryFn: () => api.get<DocumentRow[]>(`/cases/${caseId}/documents`),
+  });
+
+  const docs = (data ?? [])
+    .filter((doc) => doc.versions.length > 0)
+    .map((doc) => ({ doc, latest: latestVersion(doc) }))
+    .sort((a, b) => b.latest.createdAt.localeCompare(a.latest.createdAt))
+    .slice(0, 3);
+
+  if (isLoading) return null;
+
+  return (
+    <Section
+      title="Documentos"
+      actions={
+        docs.length > 0 && (
+          <button type="button" onClick={onOpenDocuments} className="link text-body-sm">
+            Ver todos
+          </button>
+        )
+      }
+    >
+      {docs.length === 0 ? (
+        <p className="text-body-sm text-muted-foreground">
+          Aún no hay documentos cargados. La estructura documental del caso está creada.
+        </p>
+      ) : (
+        <Panel>
+          <ul className="divide-y divide-border-subtle">
+            {docs.map(({ doc, latest }) => (
+              <li key={doc.id} className="flex items-center gap-3 px-5 py-2.5">
+                <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-body-sm text-foreground" title={latest.fileName}>
+                    {latest.fileName}
+                  </p>
+                  <p className="truncate text-caption text-muted-foreground">
+                    {humanizeCode(doc.stage)} · v{latest.versionNumber}
+                  </p>
+                </div>
+                <span className="shrink-0 text-caption text-muted-foreground">
+                  {formatDate(latest.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
+    </Section>
+  );
+}
+
+// ============================================================================
+//  Workflow
+// ============================================================================
+
+function WorkflowTab({
+  kase,
+  history,
+}: {
+  kase: CaseDetail;
+  history: StatusHistoryEntry[] | undefined;
+}) {
+  const dates: Array<[string, string | null]> = [
+    ['Registro', kase.createdAt],
+    ['Publicación en bolsa', kase.publishedAt],
+    ['Apertura de decisión del cliente', kase.decisionOpenedAt],
+    ['Autorización de ejecución', kase.authorizedAt],
+    ['Inicio de ejecución', kase.executionStartedAt],
+    ['Cierre', kase.closedAt],
+  ];
+
+  return (
+    <div className="space-y-8">
+      <Section title="Recorrido" description="Etapas del ciclo y estados por los que pasó el caso">
+        <Panel className="px-5 py-5">
+          <WorkflowStepper status={kase.status} history={history} />
+        </Panel>
+      </Section>
+
+      <Section title="Fechas del expediente">
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
+          {dates.map(([text, value]) => (
+            <div key={text} className="flex items-center gap-2.5">
+              <span
+                className={cn(
+                  'size-2 shrink-0 rounded-full',
+                  value ? 'bg-foreground' : 'border-[1.5px] border-border-strong',
+                )}
+                aria-hidden
+              />
+              <dt
+                className={cn(
+                  'min-w-0 flex-1 truncate text-body-sm',
+                  value ? 'text-ink-2' : 'text-muted-foreground',
+                )}
+              >
+                {text}
+              </dt>
+              <dd
+                className={cn(
+                  'tabular shrink-0 text-body-sm',
+                  value ? 'text-foreground' : 'text-muted-foreground',
+                )}
+              >
+                {value ? formatDate(value) : 'Pendiente'}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </Section>
+
+      <Section
+        title="Historial de estados"
+        description="Cada transición con su actor, su nota y el tiempo en la etapa anterior"
+      >
+        {!history ? (
+          <Skeleton className="h-48" />
+        ) : (
+          <Panel className="px-5 py-5">
+            <CaseTimeline entries={history} />
+          </Panel>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+// ============================================================================
+//  Auditoría (bitácora formal)
+// ============================================================================
+
+function AuditTab({ caseId }: { caseId: string }) {
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['case', caseId, 'timeline'],
+    queryFn: () => api.get<TimelineEntry[]>(`/cases/${caseId}/timeline`),
+  });
+
+  if (error) return <LoadError what="la bitácora" onRetry={() => void refetch()} />;
+
+  return (
+    <Section
+      title="Bitácora del caso"
+      description="Registro append-only: no puede modificarse ni eliminarse desde la aplicación"
+      actions={
+        <span className="inline-flex items-center gap-1.5 text-caption text-muted-foreground">
+          <Lock className="size-3.5" aria-hidden /> {data?.length ?? 0} eventos
+        </span>
+      }
+    >
+      <Panel>
+        {isLoading ? (
+          <TableSkeleton rows={8} columns={4} />
+        ) : data && data.length > 0 ? (
+          <Table density="compact">
+            <THead>
+              <tr>
+                <TH>Fecha</TH>
+                <TH>Acción</TH>
+                <TH>Actor</TH>
+                <TH>Detalle</TH>
+              </tr>
+            </THead>
+            <TBody>
+              {data.map((entry) => (
+                <TR key={entry.id}>
+                  <TD className="tabular whitespace-nowrap text-caption text-muted-foreground">
+                    {formatDateTime(entry.createdAt)}
+                  </TD>
+                  <TD className="max-w-72">
+                    <span className="block truncate text-body-sm text-foreground">
+                      {entry.actionLabel}
+                    </span>
+                    <span className="block truncate font-mono text-caption text-muted-foreground">
+                      {entry.entity}
+                    </span>
+                  </TD>
+                  <TD className="whitespace-nowrap text-body-sm text-ink-2">
+                    {entry.origin === 'SYSTEM' ? 'Sistema' : (entry.actor?.fullName ?? '—')}
+                  </TD>
+                  <TD className="max-w-80">{renderAuditDelta(entry)}</TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        ) : (
+          <EmptyState title="Sin eventos registrados todavía" />
+        )}
+      </Panel>
+    </Section>
+  );
+}
+
+/** El delta auditado, legible y breve: nunca el JSON completo. */
 function renderAuditDelta(entry: TimelineEntry): React.ReactNode {
   const relevant = (entry.newValue ?? entry.metadata) as Record<string, unknown> | null;
-  if (!relevant || typeof relevant !== 'object') return null;
+  if (!relevant || typeof relevant !== 'object') {
+    return <span className="text-caption text-muted-foreground">—</span>;
+  }
 
   const pairs = Object.entries(relevant)
     .filter(([, value]) => value !== null && value !== undefined && typeof value !== 'object')
-    .slice(0, 4);
+    .slice(0, 3);
 
-  if (pairs.length === 0) return null;
+  if (pairs.length === 0) return <span className="text-caption text-muted-foreground">—</span>;
 
   return (
-    <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-      {pairs.map(([key, value]) => (
-        <div key={key} className="flex items-baseline gap-1">
-          <dt className="text-2xs text-muted-foreground">{humanizeKey(key)}:</dt>
-          <dd className="text-2xs font-medium">{String(value)}</dd>
-        </div>
+    <span
+      className="block truncate text-caption text-muted-foreground"
+      title={pairs.map(([key, value]) => `${humanizeKey(key)}: ${String(value)}`).join(' · ')}
+    >
+      {pairs.map(([key, value], index) => (
+        <React.Fragment key={key}>
+          {index > 0 && ' · '}
+          {humanizeKey(key)}: <span className="text-ink-2">{String(value)}</span>
+        </React.Fragment>
       ))}
-    </dl>
+    </span>
   );
 }
 
@@ -424,139 +572,151 @@ interface ApplicationView {
 
 function ApplicationsTab({ caseId, role }: { caseId: string; role: Role }) {
   const label = useLookupLabel();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['case', caseId, 'applications'],
     queryFn: () => api.get<ApplicationView[]>(`/cases/${caseId}/applications`),
   });
 
   if (isLoading) return <Skeleton className="h-64" />;
+  if (error) return <LoadError what="las postulaciones" onRetry={() => void refetch()} />;
 
   if (!data || data.length === 0) {
     return (
-      <Card>
-        <CardContent>
-          <EmptyState
-            icon={<Users className="size-8" />}
-            title="Sin postulaciones"
-            description={
-              role === 'CONSULTOR'
-                ? 'Aún no ha presentado una postulación para este caso.'
-                : 'Cuando el caso se publique en la bolsa interna, las postulaciones aparecerán aquí.'
-            }
-          />
-        </CardContent>
-      </Card>
+      <EmptyPanel
+        title="Sin postulaciones"
+        description={
+          role === 'CONSULTOR'
+            ? 'Aún no ha presentado una postulación para este caso.'
+            : 'Cuando el caso se publique en la bolsa interna, las postulaciones de los consultores elegibles aparecerán aquí para su evaluación (T3D).'
+        }
+      />
     );
   }
 
   return (
-    <div className="space-y-3">
-      {data.map((application) => (
-        <Card key={application.id}>
-          <CardHeader className="flex-row items-start justify-between gap-3">
-            <div className="min-w-0">
-              <CardTitle>{application.consultant.fullName}</CardTitle>
-              <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
-                <span className="font-mono">{application.consultant.code}</span>
-                {application.consultant.tier && (
-                  <>
-                    <span>·</span>
-                    <span>{application.consultant.tier.toLowerCase()}</span>
-                  </>
-                )}
-                <span>·</span>
-                <span>{application.consultant.yearsOfExperience} años de experiencia</span>
-                <span>·</span>
-                <span>
-                  {application.consultant.assignedCases} caso
-                  {application.consultant.assignedCases === 1 ? '' : 's'} atendido
-                  {application.consultant.assignedCases === 1 ? '' : 's'}
-                </span>
-              </p>
-            </div>
-            <div className="shrink-0 text-right">
-              <Badge
-                tone={
-                  application.status === 'ACEPTADA'
-                    ? 'emerald'
-                    : application.status === 'NO_SELECCIONADA'
-                      ? 'slate'
-                      : application.status === 'RETIRADA'
-                        ? 'rose'
-                        : 'blue'
-                }
-              >
-                {application.status.replace(/_/g, ' ').toLowerCase()}
-              </Badge>
-              {application.evaluation && (
-                <p className="mt-1 font-mono text-xs font-semibold">
-                  {application.evaluation.totalScore}/25
-                </p>
-              )}
-            </div>
-          </CardHeader>
+    <Section
+      title="Postulaciones"
+      description={`${data.length} postulación${data.length === 1 ? '' : 'es'} · evaluadas con la plantilla T3D`}
+    >
+      <div className="space-y-3">
+        {data.map((application) => {
+          const selected = application.status === 'ACEPTADA';
 
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-1.5">
-              {application.consultant.specialties.map((specialty) => (
-                <Badge key={specialty.specialtyCode} tone={specialty.isPrimary ? 'indigo' : 'outline'}>
-                  {label('ESPECIALIDAD', specialty.specialtyCode)}
-                </Badge>
-              ))}
-            </div>
-
-            <dl className="grid gap-4 md:grid-cols-2">
-              <DefItem label="Interés y pertinencia">
-                <p className="text-sm leading-relaxed">{application.fitJustification}</p>
-              </DefItem>
-              <DefItem label="Enfoque preliminar">
-                <p className="text-sm leading-relaxed">{application.preliminaryApproach}</p>
-              </DefItem>
-              <DefItem label="Experiencia relevante">
-                <p className="text-sm leading-relaxed">{application.relevantExperience}</p>
-              </DefItem>
-              <DefItem label="Disponibilidad declarada">
-                <p className="text-sm">{application.availability}</p>
-              </DefItem>
-            </dl>
-
-            {application.evaluation && (
-              <div className="rounded-lg border border-border bg-secondary/40 p-3">
-                <p className="label-caps mb-2">Evaluación T3D</p>
-                <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
-                  {(
-                    [
-                      ['specialtyFit', 'Especialidad'],
-                      ['experienceFit', 'Experiencia'],
-                      ['levelFit', 'Nivel'],
-                      ['availabilityFit', 'Disponibilidad'],
-                      ['trackRecordFit', 'Historial'],
-                    ] as const
-                  ).map(([key, text]) => (
-                    <div key={key}>
-                      <span className="block text-2xs text-muted-foreground">{text}</span>
-                      <span className="font-mono text-sm font-semibold">
-                        {application.evaluation![key]}/5
-                      </span>
-                    </div>
-                  ))}
+          return (
+            <Panel key={application.id} className={cn(selected && 'border-brand/50')}>
+              <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-3.5">
+                <PersonCell
+                  name={application.consultant.fullName}
+                  size="md"
+                  secondary={
+                    <span className="text-muted-foreground">
+                      <span className="code">{application.consultant.code}</span>
+                      {application.consultant.tier &&
+                        ` · ${application.consultant.tier.toLowerCase()}`}{' '}
+                      · {application.consultant.yearsOfExperience} años ·{' '}
+                      {application.consultant.assignedCases} caso
+                      {application.consultant.assignedCases === 1 ? '' : 's'} atendido
+                      {application.consultant.assignedCases === 1 ? '' : 's'}
+                    </span>
+                  }
+                />
+                <div className="flex shrink-0 items-center gap-3">
+                  {application.evaluation && (
+                    <span className="tabular text-body font-semibold">
+                      {application.evaluation.totalScore}
+                      <span className="text-caption font-normal text-muted-foreground">/25</span>
+                    </span>
+                  )}
+                  <Badge tone={selected ? 'brand' : 'outline'} dot={selected}>
+                    {humanizeCode(application.status)}
+                  </Badge>
                 </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {application.evaluation.notes}
+              </div>
+
+              <div className="space-y-4 px-5 py-4">
+                <p className="text-caption text-muted-foreground">
+                  {application.consultant.specialties
+                    .map((specialty) => label('ESPECIALIDAD', specialty.specialtyCode))
+                    .join(' · ')}
                 </p>
-                <p className="mt-1.5 text-2xs text-muted-foreground">
-                  {application.evaluation.evaluatedBy?.fullName ?? 'Advisory'} ·{' '}
-                  {formatDate(application.evaluation.createdAt)}
+
+                <dl className="grid gap-x-8 gap-y-3 md:grid-cols-2">
+                  <DefItem label="Interés y pertinencia">
+                    <span className="text-body-sm leading-relaxed text-ink-2">
+                      {application.fitJustification}
+                    </span>
+                  </DefItem>
+                  <DefItem label="Enfoque preliminar">
+                    <span className="text-body-sm leading-relaxed text-ink-2">
+                      {application.preliminaryApproach}
+                    </span>
+                  </DefItem>
+                  <DefItem label="Experiencia relevante">
+                    <span className="text-body-sm leading-relaxed text-ink-2">
+                      {application.relevantExperience}
+                    </span>
+                  </DefItem>
+                  <DefItem label="Disponibilidad">
+                    <span className="text-body-sm text-ink-2">{application.availability}</span>
+                  </DefItem>
+                </dl>
+
+                {application.evaluation && (
+                  <div className="space-y-2 border-t border-border-subtle pt-3">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                      {(
+                        [
+                          ['specialtyFit', 'Especialidad'],
+                          ['experienceFit', 'Experiencia'],
+                          ['levelFit', 'Nivel'],
+                          ['availabilityFit', 'Disponibilidad'],
+                          ['trackRecordFit', 'Historial'],
+                        ] as const
+                      ).map(([key, text]) => (
+                        <ScoreCell key={key} label={text} value={application.evaluation![key]} />
+                      ))}
+                    </div>
+                    <p className="text-body-sm leading-relaxed text-ink-2">
+                      {application.evaluation.notes}
+                    </p>
+                    <p className="text-caption text-muted-foreground">
+                      Evaluó {application.evaluation.evaluatedBy?.fullName ?? 'Advisory'} ·{' '}
+                      {formatDate(application.evaluation.createdAt)}
+                    </p>
+                  </div>
+                )}
+
+                <p className="text-caption text-muted-foreground">
+                  Postulada {formatRelative(application.createdAt)}
                 </p>
               </div>
-            )}
+            </Panel>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
 
-            <p className="text-2xs text-muted-foreground">
-              Postulada {formatRelative(application.createdAt)}
-            </p>
-          </CardContent>
-        </Card>
-      ))}
+/** Puntuación 1–5 con cinco segmentos. */
+function ScoreCell({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="space-y-1">
+      <span className="block text-caption text-muted-foreground">{label}</span>
+      <span className="flex items-center gap-2">
+        <span className="flex gap-0.5" aria-hidden>
+          {[1, 2, 3, 4, 5].map((step) => (
+            <span
+              key={step}
+              className={cn(
+                'h-1 w-2.5 rounded-full',
+                step <= value ? 'bg-foreground' : 'bg-border',
+              )}
+            />
+          ))}
+        </span>
+        <span className="tabular text-caption font-medium">{value}/5</span>
+      </span>
     </div>
   );
 }
@@ -603,16 +763,16 @@ interface ProposalView {
   }>;
 }
 
-const CONTENT_BLOCKS: Array<[string, string]> = [
-  ['executiveSummary', 'A · Resumen ejecutivo'],
-  ['objective', 'B · Objetivo de la intervención'],
-  ['scope', 'C · Alcance'],
-  ['exclusions', 'D · Exclusiones'],
-  ['activities', 'E · Actividades'],
-  ['deliverables', 'F · Entregables esperados'],
-  ['schedule', 'G · Cronograma preliminar'],
-  ['valuation', 'H · Valoración inicial'],
-  ['conditions', 'I · Condiciones y supuestos'],
+const CONTENT_BLOCKS: Array<[string, string, string]> = [
+  ['executiveSummary', 'A', 'Resumen ejecutivo'],
+  ['objective', 'B', 'Objetivo de la intervención'],
+  ['scope', 'C', 'Alcance'],
+  ['exclusions', 'D', 'Exclusiones'],
+  ['activities', 'E', 'Actividades'],
+  ['deliverables', 'F', 'Entregables esperados'],
+  ['schedule', 'G', 'Cronograma preliminar'],
+  ['valuation', 'H', 'Valoración inicial'],
+  ['conditions', 'I', 'Condiciones y supuestos'],
 ];
 
 function ProposalTab({ caseId }: { caseId: string }) {
@@ -626,97 +786,101 @@ function ProposalTab({ caseId }: { caseId: string }) {
 
   if (isLoading) return <Skeleton className="h-64" />;
 
+  // La API responde 404 mientras el expediente de propuesta no exista.
   if (error || !data) {
     return (
-      <Card>
-        <CardContent>
-          <EmptyState
-            icon={<FileStack className="size-8" />}
-            title="Todavía no hay propuesta"
-            description="El expediente se abre cuando el consultor responsable inicia el diseño."
-          />
-        </CardContent>
-      </Card>
+      <EmptyPanel
+        title="Todavía no hay propuesta"
+        description="El expediente se abre cuando el consultor responsable inicia el diseño (TP4). Desde entonces cada versión queda registrada aquí."
+      />
     );
   }
 
-  const version =
-    data.versions.find((item) => item.versionNumber === selected) ?? data.versions[0];
+  const version = data.versions.find((item) => item.versionNumber === selected) ?? data.versions[0];
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Versiones de la propuesta</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Ninguna versión se sobrescribe: cada ajuste genera una nueva y conserva la anterior
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
+    <div className="space-y-8">
+      <Section
+        title="Versiones"
+        description="Ninguna versión se sobrescribe: cada ajuste genera una nueva y conserva la anterior"
+      >
+        <Panel>
           <Table>
             <THead>
-              <TR className="hover:bg-transparent">
+              <tr>
                 <TH>Versión</TH>
                 <TH>Estado</TH>
                 <TH>Autor</TH>
                 <TH>Nota de cambio</TH>
                 <TH className="text-right">Creada</TH>
-              </TR>
+              </tr>
             </THead>
             <TBody>
-              {data.versions.map((item) => (
-                <TR
-                  key={item.id}
-                  className={cn(
-                    'cursor-pointer',
-                    version?.versionNumber === item.versionNumber && 'bg-accent/40',
-                  )}
-                  onClick={() => setSelected(item.versionNumber)}
-                >
-                  <TD className="font-mono text-sm font-semibold">v{item.versionNumber}</TD>
-                  <TD>
-                    <Badge tone={proposalTone(item.status)}>
-                      {item.status.replace(/_/g, ' ').toLowerCase()}
-                    </Badge>
-                    {item.frozenAt && (
-                      <span className="ml-1.5 text-2xs text-muted-foreground">congelada</span>
+              {data.versions.map((item) => {
+                const isSelected = version?.versionNumber === item.versionNumber;
+                return (
+                  <TR
+                    key={item.id}
+                    className={cn(
+                      'cursor-pointer',
+                      isSelected && 'bg-brand-soft hover:bg-brand-soft',
                     )}
-                  </TD>
-                  <TD className="text-xs">{item.createdBy?.fullName ?? '—'}</TD>
-                  <TD className="max-w-[260px]">
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {item.changeNote ?? '—'}
-                    </span>
-                  </TD>
-                  <TD className="whitespace-nowrap text-right text-2xs text-muted-foreground">
-                    {formatDate(item.createdAt)}
-                  </TD>
-                </TR>
-              ))}
+                    onClick={() => setSelected(item.versionNumber)}
+                    aria-selected={isSelected}
+                  >
+                    <TD className="tabular font-semibold">v{item.versionNumber}</TD>
+                    <TD>
+                      <span className="flex items-center gap-2">
+                        <Badge tone={item.status === 'ACEPTADA' ? 'success' : 'outline'}>
+                          {humanizeCode(item.status)}
+                        </Badge>
+                        {item.frozenAt && (
+                          <span className="inline-flex items-center gap-1 text-caption text-muted-foreground">
+                            <Lock className="size-3" aria-hidden /> congelada
+                          </span>
+                        )}
+                      </span>
+                    </TD>
+                    <TD className="text-ink-2">{item.createdBy?.fullName ?? '—'}</TD>
+                    <TD className="max-w-64">
+                      <span
+                        className="block truncate text-muted-foreground"
+                        title={item.changeNote ?? undefined}
+                      >
+                        {item.changeNote ?? '—'}
+                      </span>
+                    </TD>
+                    <TD className="whitespace-nowrap text-right text-muted-foreground">
+                      {formatDate(item.createdAt)}
+                    </TD>
+                  </TR>
+                );
+              })}
             </TBody>
           </Table>
-        </CardContent>
-      </Card>
+        </Panel>
+      </Section>
 
       {version && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Contenido de la versión {version.versionNumber} (TP4C)</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              {version.frozenAt
-                ? `Congelada el ${formatDate(version.frozenAt)} — sólo lectura`
-                : 'Borrador editable por el consultor responsable'}
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <Section
+          title={`Contenido · v${version.versionNumber}`}
+          description={`Plantilla TP4C · ${
+            version.frozenAt
+              ? `congelada el ${formatDate(version.frozenAt)}, sólo lectura`
+              : 'borrador editable por el consultor responsable'
+          }`}
+        >
+          <Panel className="space-y-5 px-5 py-5">
             {version.analysis?.problemSynthesis && (
-              <div className="rounded-lg border border-border bg-secondary/40 p-3">
-                <p className="label-caps mb-1.5">Análisis estructurado (TP4B)</p>
-                <p className="text-sm leading-relaxed">{version.analysis.problemSynthesis}</p>
+              <div className="rounded-sm bg-muted px-4 py-3">
+                <p className="text-caption text-muted-foreground">Análisis estructurado · TP4B</p>
+                <p className="mt-1 text-body-sm leading-relaxed text-ink-2">
+                  {version.analysis.problemSynthesis}
+                </p>
                 {version.analysis.risks && (
                   <>
-                    <p className="label-caps mb-1 mt-3">Riesgos identificados</p>
-                    <p className="text-sm leading-relaxed text-muted-foreground">
+                    <p className="mt-3 text-caption text-muted-foreground">Riesgos identificados</p>
+                    <p className="mt-1 text-body-sm leading-relaxed text-ink-2">
                       {version.analysis.risks}
                     </p>
                   </>
@@ -725,12 +889,20 @@ function ProposalTab({ caseId }: { caseId: string }) {
             )}
 
             {version.content ? (
-              <dl className="space-y-4">
-                {CONTENT_BLOCKS.map(([key, blockLabel]) =>
+              <dl className="divide-y divide-border-subtle">
+                {CONTENT_BLOCKS.map(([key, letter, blockLabel]) =>
                   version.content?.[key] ? (
-                    <div key={key}>
-                      <dt className="label-caps mb-1">{blockLabel}</dt>
-                      <dd className="whitespace-pre-line text-sm leading-relaxed">
+                    <div
+                      key={key}
+                      className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[200px_minmax(0,1fr)] sm:gap-6"
+                    >
+                      <dt className="flex items-baseline gap-2 text-body-sm font-medium text-foreground">
+                        <span className="tabular text-caption font-semibold text-muted-foreground">
+                          {letter}
+                        </span>
+                        {blockLabel}
+                      </dt>
+                      <dd className="max-w-prose whitespace-pre-line text-body-sm leading-relaxed text-ink-2">
                         {version.content[key]}
                       </dd>
                     </div>
@@ -738,123 +910,112 @@ function ProposalTab({ caseId }: { caseId: string }) {
                 )}
               </dl>
             ) : (
-              <EmptyState title="Esta versión aún no tiene contenido" />
+              <p className="text-body-sm text-muted-foreground">
+                Esta versión aún no tiene contenido.
+              </p>
             )}
-          </CardContent>
-        </Card>
+          </Panel>
+        </Section>
       )}
 
       {data.reviews.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Revisiones de QA</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Metodológica (TP4H) y revisión experta independiente
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.reviews.map((review) => (
-              <div key={review.id} className="rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Badge tone={review.type === 'METODOLOGICA' ? 'indigo' : 'violet'}>
-                      {review.type === 'METODOLOGICA' ? 'Metodológica' : 'Peer review'}
-                    </Badge>
-                    <Badge
-                      tone={
-                        review.outcome === 'APROBADA'
-                          ? 'emerald'
-                          : review.outcome === 'AJUSTES_SOLICITADOS'
-                            ? 'orange'
-                            : 'amber'
-                      }
-                    >
-                      {review.outcome.replace(/_/g, ' ').toLowerCase()}
-                    </Badge>
-                    <span className="font-mono text-2xs text-muted-foreground">
-                      v{review.versionNumber}
+        <Section
+          title="Revisiones de QA"
+          description="Metodológica (TP4H) y revisión experta independiente"
+        >
+          <Panel>
+            <ul className="divide-y divide-border-subtle">
+              {data.reviews.map((review) => (
+                <li key={review.id} className="space-y-2 px-5 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-body-sm font-medium">
+                        {review.type === 'METODOLOGICA' ? 'Revisión metodológica' : 'Peer review'}
+                      </span>
+                      <Badge tone={reviewTone(review.outcome)} dot>
+                        {humanizeCode(review.outcome)}
+                      </Badge>
+                      <span className="tabular text-caption text-muted-foreground">
+                        v{review.versionNumber}
+                      </span>
+                    </div>
+                    <span className="text-caption text-muted-foreground">
+                      {review.reviewer?.fullName ?? '—'} · {formatDate(review.createdAt)}
                     </span>
                   </div>
-                  <span className="text-2xs text-muted-foreground">
-                    {review.reviewer?.fullName ?? '—'} · {formatDate(review.createdAt)}
-                  </span>
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                  {Object.entries(review.checklist).map(([key, value]) => (
-                    <span key={key} className="inline-flex items-center gap-1 text-2xs">
-                      {value ? (
-                        <CheckCircle2 className="size-3 text-success" aria-hidden />
-                      ) : (
-                        <CircleDashed className="size-3 text-muted-foreground" aria-hidden />
-                      )}
-                      <span className={value ? '' : 'text-muted-foreground'}>
-                        {checklistLabel(key)}
-                      </span>
-                    </span>
-                  ))}
-                </div>
-
-                {review.observations && (
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {review.observations}
-                  </p>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+                  <ul className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                    {Object.entries(review.checklist).map(([key, value]) => (
+                      <li key={key} className="flex items-center gap-2 text-caption">
+                        {value ? (
+                          <CheckCircle2
+                            className="size-3.5 shrink-0 text-success"
+                            aria-label="Cumple"
+                          />
+                        ) : (
+                          <CircleDashed
+                            className="size-3.5 shrink-0 text-muted-foreground"
+                            aria-label="No cumple"
+                          />
+                        )}
+                        <span className={value ? 'text-ink-2' : 'text-muted-foreground'}>
+                          {checklistLabel(key)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {review.observations && (
+                    <p className="max-w-prose text-body-sm leading-relaxed text-ink-2">
+                      {review.observations}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </Section>
       )}
 
       {data.adjustments.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Solicitudes de ajuste del cliente</CardTitle>
-            <p className="text-xs text-muted-foreground">TP6B · respuesta del consultor TP6C</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.adjustments.map((adjustment) => (
-              <div key={adjustment.id} className="rounded-lg border border-border p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-2xs text-muted-foreground">
-                    sobre v{adjustment.versionNumber}
-                  </span>
-                  <span className="text-2xs text-muted-foreground">
-                    {adjustment.requestedBy?.fullName ?? 'Cliente'} ·{' '}
-                    {formatDate(adjustment.createdAt)}
-                  </span>
-                </div>
-                <p className="mt-1.5 text-sm leading-relaxed">{adjustment.details}</p>
-                {adjustment.response && (
-                  <div className="mt-2 border-t border-border pt-2">
-                    <p className="label-caps mb-1">Respuesta del consultor</p>
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      {adjustment.response}
-                    </p>
-                  </div>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <Section
+          title="Ajustes solicitados por el cliente"
+          description="TP6B · respuesta del consultor TP6C"
+        >
+          <Panel>
+            <ul className="divide-y divide-border-subtle">
+              {data.adjustments.map((adjustment) => (
+                <li key={adjustment.id} className="space-y-2 px-5 py-4">
+                  <p className="flex flex-wrap justify-between gap-2 text-caption text-muted-foreground">
+                    <span className="tabular font-medium">Sobre v{adjustment.versionNumber}</span>
+                    <span>
+                      {adjustment.requestedBy?.fullName ?? 'Cliente'} ·{' '}
+                      {formatDate(adjustment.createdAt)}
+                    </span>
+                  </p>
+                  <p className="max-w-prose text-body-sm leading-relaxed text-ink-2">
+                    {adjustment.details}
+                  </p>
+                  {adjustment.response && (
+                    <div className="border-l-2 border-border-strong pl-3">
+                      <p className="text-caption text-muted-foreground">Respuesta del consultor</p>
+                      <p className="max-w-prose text-body-sm leading-relaxed text-ink-2">
+                        {adjustment.response}
+                      </p>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </Section>
       )}
     </div>
   );
 }
 
-function proposalTone(status: string): 'slate' | 'amber' | 'blue' | 'emerald' | 'rose' {
-  switch (status) {
-    case 'BORRADOR':
-      return 'slate';
-    case 'EN_QA':
-      return 'amber';
-    case 'ENVIADA':
-      return 'blue';
-    case 'ACEPTADA':
-      return 'emerald';
-    default:
-      return 'slate';
-  }
+function reviewTone(outcome: string): 'success' | 'warning' | 'neutral' {
+  if (outcome === 'APROBADA') return 'success';
+  if (outcome === 'AJUSTES_SOLICITADOS') return 'warning';
+  return 'neutral';
 }
 
 function checklistLabel(key: string): string {
@@ -889,7 +1050,13 @@ interface ChecklistView {
     notes: string | null;
     evidences: Array<{ id: string; title: string; createdAt: string }>;
   }>;
-  progress: { requiredTotal: number; requiredSettled: number; percent: number; isComplete: boolean; pending: string[] };
+  progress: {
+    requiredTotal: number;
+    requiredSettled: number;
+    percent: number;
+    isComplete: boolean;
+    pending: string[];
+  };
 }
 
 interface FrameworkView {
@@ -920,148 +1087,138 @@ function ContractTab({ caseId }: { caseId: string }) {
 
   if (checklist.isLoading) return <Skeleton className="h-64" />;
 
+  // La API responde 404 mientras no exista el checklist T7A.
   if (checklist.error || !checklist.data) {
     return (
-      <Card>
-        <CardContent>
-          <EmptyState
-            icon={<ClipboardCheck className="size-8" />}
-            title="La contratación aún no ha comenzado"
-            description="El checklist T7A se instancia automáticamente cuando el cliente acepta la propuesta."
-          />
-        </CardContent>
-      </Card>
+      <EmptyPanel
+        title="La contratación aún no ha comenzado"
+        description="El checklist T7A se crea automáticamente cuando el cliente acepta la propuesta. Sin él completo, la ejecución no puede autorizarse."
+      />
     );
   }
 
   const data = checklist.data;
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Checklist de contratación (T7A)</CardTitle>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            NODUS no es parte contractual: verifica el cumplimiento del proceso, no el contenido
-            legal de los documentos. Sin este checklist completo, la ejecución no se autoriza.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all',
-                  data.progress.isComplete ? 'bg-success' : 'bg-warning',
-                )}
-                style={{ width: `${data.progress.percent}%` }}
-              />
-            </div>
-            <span className="shrink-0 font-mono text-xs font-semibold">
-              {data.progress.requiredSettled}/{data.progress.requiredTotal}
+    <div className="space-y-8">
+      <Section
+        title="Checklist de contratación (T7A)"
+        description="NODUS verifica el cumplimiento del proceso, no el contenido legal. Sin este checklist completo, la ejecución no se autoriza."
+        actions={
+          <span className="tabular text-body-sm">
+            <span className="font-semibold">{data.progress.requiredSettled}</span>
+            <span className="text-muted-foreground">
+              {' '}
+              de {data.progress.requiredTotal} obligatorios
             </span>
+          </span>
+        }
+      >
+        <Panel>
+          <div className="h-1 overflow-hidden rounded-t-md bg-muted" aria-hidden>
+            <div
+              className={cn('h-full', data.progress.isComplete ? 'bg-success' : 'bg-brand')}
+              style={{ width: `${data.progress.percent}%` }}
+            />
           </div>
-
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-border-subtle">
             {data.items.map((item) => (
-              <li key={item.id} className="flex items-start gap-3 py-3">
-                <span className="mt-0.5 shrink-0">
-                  {item.status === 'CUMPLIDO' ? (
-                    <CheckCircle2 className="size-4 text-success" aria-hidden />
-                  ) : item.status === 'NO_APLICA' ? (
-                    <CircleDashed className="size-4 text-muted-foreground" aria-hidden />
-                  ) : (
-                    <CircleDashed className="size-4 text-warning" aria-hidden />
-                  )}
-                </span>
+              <li key={item.id} className="flex items-start gap-3 px-5 py-3">
+                {item.status === 'CUMPLIDO' ? (
+                  <CheckCircle2
+                    className="mt-0.5 size-4 shrink-0 text-success"
+                    aria-label="Cumplido"
+                  />
+                ) : (
+                  <CircleDashed
+                    className="mt-0.5 size-4 shrink-0 text-subtle-foreground"
+                    aria-hidden
+                  />
+                )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">
+                  <p className="text-body-sm font-medium text-foreground">
                     {item.label}
                     {!item.isRequired && (
-                      <span className="ml-1.5 text-2xs font-normal text-muted-foreground">
-                        (opcional)
+                      <span className="ml-1.5 text-caption font-normal text-muted-foreground">
+                        opcional
                       </span>
                     )}
                   </p>
                   {item.description && (
-                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                    <p className="text-caption leading-relaxed text-muted-foreground">
                       {item.description}
                     </p>
                   )}
                   {item.notes && (
-                    <p className="mt-1 text-xs italic text-muted-foreground">{item.notes}</p>
+                    <p className="mt-0.5 text-caption italic text-muted-foreground">{item.notes}</p>
                   )}
                   {item.evidences.length > 0 && (
-                    <p className="mt-1 text-2xs text-muted-foreground">
-                      {item.evidences.length} evidencia{item.evidences.length === 1 ? '' : 's'}{' '}
-                      registrada{item.evidences.length === 1 ? '' : 's'}
+                    <p className="mt-0.5 text-caption text-muted-foreground">
+                      {item.evidences.length} evidencia{item.evidences.length === 1 ? '' : 's'}
                     </p>
                   )}
                 </div>
-                <div className="shrink-0 text-right">
-                  <Badge
-                    tone={
-                      item.status === 'CUMPLIDO'
-                        ? 'emerald'
-                        : item.status === 'NO_APLICA'
-                          ? 'slate'
-                          : item.status === 'EN_PROCESO'
-                            ? 'blue'
-                            : 'amber'
-                    }
+                <div className="flex shrink-0 flex-col items-end gap-0.5">
+                  <span
+                    className={cn(
+                      'text-body-sm',
+                      item.status === 'CUMPLIDO' ? 'text-success' : 'text-ink-2',
+                    )}
                   >
-                    {item.status.replace(/_/g, ' ').toLowerCase()}
-                  </Badge>
+                    {humanizeCode(item.status)}
+                  </span>
                   {item.responsible && (
-                    <p className="mt-1 text-2xs text-muted-foreground">{item.responsible}</p>
+                    <span className="text-caption text-muted-foreground">{item.responsible}</span>
                   )}
                 </div>
               </li>
             ))}
           </ul>
-        </CardContent>
-      </Card>
+        </Panel>
+      </Section>
 
       {framework.data && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Marco operativo del servicio (T7B)</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Cargado por {framework.data.uploadedBy?.fullName ?? 'el consultor'} ·{' '}
-              {formatDate(framework.data.createdAt)} · base del seguimiento de la ejecución
-            </p>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid gap-4 md:grid-cols-2">
-              <DefItem label="Duración estimada">
-                {framework.data.estimatedDurationDays} días
-              </DefItem>
-              <DefItem label="Contacto principal">{framework.data.primaryContact}</DefItem>
-              <DefItem label="Condiciones operativas" className="md:col-span-2">
-                <p className="text-sm leading-relaxed">{framework.data.operatingConditions}</p>
-              </DefItem>
-              <DefItem label="Cronograma base" className="md:col-span-2">
-                <p className="text-sm leading-relaxed">{framework.data.baselineSchedule}</p>
-              </DefItem>
-              <DefItem label="Entregables comprometidos" className="md:col-span-2">
-                <p className="text-sm leading-relaxed">{framework.data.committedDeliverables}</p>
-              </DefItem>
-              <DefItem label="Dependencias del cliente">
-                <p className="text-sm leading-relaxed">{framework.data.clientDependencies}</p>
-              </DefItem>
-              <DefItem label="Supuestos">
-                <p className="text-sm leading-relaxed">{framework.data.assumptions}</p>
-              </DefItem>
-            </dl>
-          </CardContent>
-        </Card>
+        <Section
+          title="Marco operativo del servicio (T7B)"
+          description={`${framework.data.uploadedBy?.fullName ?? 'Consultor'} · ${formatDate(framework.data.createdAt)} · base del seguimiento de la ejecución`}
+        >
+          <dl className="grid max-w-4xl gap-x-8 gap-y-4 md:grid-cols-2">
+            <DefItem label="Duración estimada">{framework.data.estimatedDurationDays} días</DefItem>
+            <DefItem label="Contacto principal">{framework.data.primaryContact}</DefItem>
+            <DefItem label="Condiciones operativas" className="md:col-span-2">
+              <span className="text-body-sm leading-relaxed text-ink-2">
+                {framework.data.operatingConditions}
+              </span>
+            </DefItem>
+            <DefItem label="Cronograma base" className="md:col-span-2">
+              <span className="text-body-sm leading-relaxed text-ink-2">
+                {framework.data.baselineSchedule}
+              </span>
+            </DefItem>
+            <DefItem label="Entregables comprometidos" className="md:col-span-2">
+              <span className="text-body-sm leading-relaxed text-ink-2">
+                {framework.data.committedDeliverables}
+              </span>
+            </DefItem>
+            <DefItem label="Dependencias del cliente">
+              <span className="text-body-sm leading-relaxed text-ink-2">
+                {framework.data.clientDependencies}
+              </span>
+            </DefItem>
+            <DefItem label="Supuestos">
+              <span className="text-body-sm leading-relaxed text-ink-2">
+                {framework.data.assumptions}
+              </span>
+            </DefItem>
+          </dl>
+        </Section>
       )}
     </div>
   );
 }
 
 // ============================================================================
-//  Ejecución
+//  Ejecución: resumen operativo, hitos, actividades, entregables, incidencias
 // ============================================================================
 
 interface ExecutionSummary {
@@ -1073,249 +1230,6 @@ interface ExecutionSummary {
   deliverables: Record<string, number>;
   readyForTechnicalClosure: boolean;
   closureBlockers: string[];
-}
-
-function ExecutionTab({ caseId }: { caseId: string }) {
-  const summary = useQuery({
-    queryKey: ['case', caseId, 'execution-summary'],
-    queryFn: () => api.get<ExecutionSummary>(`/cases/${caseId}/execution-summary`),
-  });
-
-  const activities = useQuery({
-    queryKey: ['case', caseId, 'activities'],
-    queryFn: () => api.get<ActivityRow[]>(`/cases/${caseId}/activities`),
-  });
-
-  const milestones = useQuery({
-    queryKey: ['case', caseId, 'milestones'],
-    queryFn: () => api.get<MilestoneRow[]>(`/cases/${caseId}/milestones`),
-  });
-
-  const incidents = useQuery({
-    queryKey: ['case', caseId, 'incidents'],
-    queryFn: () => api.get<IncidentRow[]>(`/cases/${caseId}/incidents`),
-  });
-
-  const deliverables = useQuery({
-    queryKey: ['case', caseId, 'deliverables'],
-    queryFn: () => api.get<DeliverableRow[]>(`/cases/${caseId}/deliverables`),
-  });
-
-  if (summary.isLoading) return <Skeleton className="h-64" />;
-
-  const hasAnything =
-    (activities.data?.length ?? 0) +
-      (milestones.data?.length ?? 0) +
-      (deliverables.data?.length ?? 0) >
-    0;
-
-  if (!hasAnything) {
-    return (
-      <Card>
-        <CardContent>
-          <EmptyState
-            icon={<ActivityIcon className="size-8" />}
-            title="La agenda operativa aún no está activa"
-            description="Se habilita cuando el caso queda autorizado para ejecución (T8A)."
-          />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {summary.data && summary.data.closureBlockers.length > 0 && (
-        <Card>
-          <CardContent className="space-y-1.5">
-            <p className="label-caps">Bloqueos para el cierre técnico</p>
-            <ul className="space-y-1">
-              {summary.data.closureBlockers.map((blocker) => (
-                <li key={blocker} className="flex items-start gap-2 text-sm">
-                  <CircleDashed className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
-                  {blocker}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      {(milestones.data?.length ?? 0) > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Flag className="size-4 text-muted-foreground" aria-hidden /> Hitos (T8C)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <THead>
-                <TR className="hover:bg-transparent">
-                  <TH>Hito</TH>
-                  <TH>Responsable</TH>
-                  <TH>Criticidad</TH>
-                  <TH>Estado</TH>
-                  <TH className="text-right">Fecha objetivo</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {milestones.data!.map((milestone) => (
-                  <TR key={milestone.id}>
-                    <TD className="max-w-[280px]">
-                      <span className="block truncate text-sm font-medium">{milestone.name}</span>
-                    </TD>
-                    <TD className="text-xs">{milestone.responsible}</TD>
-                    <TD>
-                      <Badge tone={milestone.criticality === 'CRITICO' ? 'rose' : milestone.criticality === 'ALTO' ? 'orange' : 'slate'}>
-                        {milestone.criticality.toLowerCase()}
-                      </Badge>
-                    </TD>
-                    <TD>
-                      <Badge tone={milestoneTone(milestone.status)}>
-                        {milestone.status.replace(/_/g, ' ').toLowerCase()}
-                      </Badge>
-                    </TD>
-                    <TD
-                      className={cn(
-                        'whitespace-nowrap text-right text-xs',
-                        milestone.isOverdue ? 'font-medium text-destructive' : 'text-muted-foreground',
-                      )}
-                    >
-                      {formatDate(milestone.targetDate)}
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      {(deliverables.data?.length ?? 0) > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Package className="size-4 text-muted-foreground" aria-hidden /> Entregables (T8G)
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Versionamiento obligatorio: cada carga conserva las versiones anteriores
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {deliverables.data!.map((deliverable) => (
-              <div key={deliverable.id} className="rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{deliverable.name}</p>
-                    <p className="mt-0.5 text-2xs text-muted-foreground">
-                      {deliverable.responsible} · objetivo {formatDate(deliverable.targetDate)}
-                    </p>
-                  </div>
-                  <Badge tone={deliverableTone(deliverable.status)}>
-                    {deliverable.status.replace(/_/g, ' ').toLowerCase()}
-                  </Badge>
-                </div>
-
-                {deliverable.versions.length > 0 && (
-                  <ul className="mt-2 space-y-1 border-t border-border pt-2">
-                    {deliverable.versions.map((version) => (
-                      <li
-                        key={version.id}
-                        className="flex items-center justify-between gap-2 text-2xs"
-                      >
-                        <span className="font-mono font-semibold">v{version.versionNumber}</span>
-                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                          {version.notes ?? version.documentVersion?.fileName ?? '—'}
-                        </span>
-                        <span className="shrink-0 text-muted-foreground">
-                          {formatDate(version.createdAt)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {(activities.data?.length ?? 0) > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ActivityIcon className="size-4 text-muted-foreground" aria-hidden /> Actividades (T8B)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <THead>
-                <TR className="hover:bg-transparent">
-                  <TH>Actividad</TH>
-                  <TH>Responsable</TH>
-                  <TH>Estado</TH>
-                  <TH className="text-right">Fecha objetivo</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {activities.data!.map((activity) => (
-                  <TR key={activity.id}>
-                    <TD className="max-w-[320px]">
-                      <span className="block truncate text-sm">{activity.name}</span>
-                    </TD>
-                    <TD className="text-xs">{activity.responsible}</TD>
-                    <TD>
-                      <Badge tone={activityTone(activity.status)}>
-                        {activity.status.replace(/_/g, ' ').toLowerCase()}
-                      </Badge>
-                    </TD>
-                    <TD className="whitespace-nowrap text-right text-xs text-muted-foreground">
-                      {formatDate(activity.targetDate)}
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      {(incidents.data?.length ?? 0) > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Incidencias (T8D)</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {incidents.data!.map((incident) => (
-              <div key={incident.id} className="rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="text-sm font-medium">{incident.title}</p>
-                  <div className="flex shrink-0 gap-1.5">
-                    <Badge tone={incident.impact === 'CRITICO' || incident.impact === 'ALTO' ? 'rose' : 'amber'}>
-                      {incident.impact.toLowerCase()}
-                    </Badge>
-                    <Badge tone={incident.status === 'CERRADA' || incident.status === 'RESUELTA' ? 'emerald' : 'orange'}>
-                      {incident.status.replace(/_/g, ' ').toLowerCase()}
-                    </Badge>
-                  </div>
-                </div>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  {incident.description}
-                </p>
-                <p className="mt-1.5 text-2xs text-muted-foreground">
-                  Acción sugerida: {incident.suggestedAction}
-                </p>
-                {incident.decision && (
-                  <p className="mt-1 text-2xs font-medium">Decisión: {incident.decision}</p>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
 }
 
 interface ActivityRow {
@@ -1358,36 +1272,391 @@ interface DeliverableRow {
   }>;
 }
 
-function activityTone(status: string) {
-  return status === 'COMPLETADA'
-    ? ('emerald' as const)
-    : status === 'EN_CURSO'
-      ? ('blue' as const)
-      : status === 'BLOQUEADA'
-        ? ('rose' as const)
-        : ('slate' as const);
+type ExecutionView = 'summary' | 'milestones' | 'activities' | 'deliverables' | 'incidents';
+
+const sum = (record: Record<string, number> | undefined): number =>
+  Object.values(record ?? {}).reduce((total, value) => total + value, 0);
+
+const isOpenIncident = (status: string): boolean => status !== 'CERRADA' && status !== 'RESUELTA';
+
+function ExecutionTab({ caseId }: { caseId: string }) {
+  const [view, setView] = React.useState<ExecutionView>('summary');
+
+  const summary = useQuery({
+    queryKey: ['case', caseId, 'execution-summary'],
+    queryFn: () => api.get<ExecutionSummary>(`/cases/${caseId}/execution-summary`),
+  });
+  const activities = useQuery({
+    queryKey: ['case', caseId, 'activities'],
+    queryFn: () => api.get<ActivityRow[]>(`/cases/${caseId}/activities`),
+  });
+  const milestones = useQuery({
+    queryKey: ['case', caseId, 'milestones'],
+    queryFn: () => api.get<MilestoneRow[]>(`/cases/${caseId}/milestones`),
+  });
+  const incidents = useQuery({
+    queryKey: ['case', caseId, 'incidents'],
+    queryFn: () => api.get<IncidentRow[]>(`/cases/${caseId}/incidents`),
+  });
+  const deliverables = useQuery({
+    queryKey: ['case', caseId, 'deliverables'],
+    queryFn: () => api.get<DeliverableRow[]>(`/cases/${caseId}/deliverables`),
+  });
+
+  if (summary.isLoading) return <Skeleton className="h-64" />;
+  if (summary.error) {
+    return <LoadError what="la ejecución" onRetry={() => void summary.refetch()} />;
+  }
+
+  const total =
+    (activities.data?.length ?? 0) +
+    (milestones.data?.length ?? 0) +
+    (deliverables.data?.length ?? 0);
+
+  if (total === 0) {
+    return (
+      <EmptyPanel
+        title="La agenda operativa aún no está activa"
+        description="Se habilita cuando el caso queda autorizado para ejecución (T8A). A partir de ahí aquí se siguen hitos, actividades, entregables e incidencias."
+      />
+    );
+  }
+
+  const openIncidents = (incidents.data ?? []).filter((incident) =>
+    isOpenIncident(incident.status),
+  ).length;
+
+  return (
+    <div className="space-y-5">
+      <SegmentedControl<ExecutionView>
+        value={view}
+        onValueChange={setView}
+        layoutId="execution-view"
+        ariaLabel="Vista de ejecución"
+        options={[
+          { value: 'summary', label: 'Resumen' },
+          { value: 'milestones', label: 'Hitos', count: milestones.data?.length ?? 0 },
+          { value: 'activities', label: 'Actividades', count: activities.data?.length ?? 0 },
+          { value: 'deliverables', label: 'Entregables', count: deliverables.data?.length ?? 0 },
+          { value: 'incidents', label: 'Incidencias', count: incidents.data?.length ?? 0 },
+        ]}
+      />
+
+      {view === 'summary' && summary.data && (
+        <div className="space-y-6">
+          <dl className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 xl:grid-cols-4 [&>div]:bg-card">
+            <OpsStat
+              label="Hitos"
+              value={sum(summary.data.milestones)}
+              detail={`${summary.data.milestones.CUMPLIDO ?? 0} cumplidos`}
+              alert={
+                summary.data.milestonesOverdue > 0
+                  ? `${summary.data.milestonesOverdue} vencido${summary.data.milestonesOverdue === 1 ? '' : 's'}`
+                  : null
+              }
+            />
+            <OpsStat
+              label="Actividades"
+              value={sum(summary.data.activities)}
+              detail={`${summary.data.activities.COMPLETADA ?? 0} completadas`}
+              alert={
+                summary.data.activities.BLOQUEADA
+                  ? `${summary.data.activities.BLOQUEADA} bloqueada${summary.data.activities.BLOQUEADA === 1 ? '' : 's'}`
+                  : null
+              }
+            />
+            <OpsStat
+              label="Entregables"
+              value={sum(summary.data.deliverables)}
+              detail={`${summary.data.deliverables.LISTO_PARA_CIERRE ?? 0} listos para cierre`}
+            />
+            <OpsStat
+              label="Incidencias abiertas"
+              value={openIncidents}
+              detail={`${incidents.data?.length ?? 0} registradas`}
+              alert={openIncidents > 0 ? 'Requieren decisión' : null}
+            />
+          </dl>
+
+          {summary.data.closureBlockers.length > 0 ? (
+            <Section title="Pendiente para el cierre técnico">
+              <ul className="space-y-1.5">
+                {summary.data.closureBlockers.map((blocker) => (
+                  <li key={blocker} className="flex gap-2 text-body-sm text-ink-2">
+                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+                    {blocker}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : (
+            summary.data.readyForTechnicalClosure && (
+              <p className="flex items-center gap-2 text-body-sm text-ink-2">
+                <CheckCircle2 className="size-4 text-success" aria-hidden />
+                Sin bloqueos: el caso puede pasar a cierre técnico.
+              </p>
+            )
+          )}
+        </div>
+      )}
+
+      {view === 'milestones' &&
+        ((milestones.data?.length ?? 0) > 0 ? (
+          <Panel>
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Hito</TH>
+                  <TH>Responsable</TH>
+                  <TH>Criticidad</TH>
+                  <TH>Estado</TH>
+                  <TH className="text-right">Fecha objetivo</TH>
+                </tr>
+              </THead>
+              <TBody>
+                {milestones.data!.map((milestone) => (
+                  <TR key={milestone.id}>
+                    <TD className="max-w-72">
+                      <span className="block truncate font-medium" title={milestone.name}>
+                        {milestone.name}
+                      </span>
+                    </TD>
+                    <TD className="text-ink-2">{milestone.responsible}</TD>
+                    <TD>
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1.5',
+                          criticalityText(milestone.criticality),
+                        )}
+                      >
+                        {milestone.criticality === 'CRITICO' && (
+                          <TriangleAlert className="size-3.5" aria-hidden />
+                        )}
+                        {humanizeCode(milestone.criticality)}
+                      </span>
+                    </TD>
+                    <TD>
+                      <OutcomeText
+                        status={milestone.status}
+                        success={['CUMPLIDO']}
+                        failure={['INCUMPLIDO']}
+                      />
+                    </TD>
+                    <TD
+                      className={cn(
+                        'tabular whitespace-nowrap text-right',
+                        milestone.isOverdue ? 'font-medium text-danger' : 'text-muted-foreground',
+                      )}
+                    >
+                      {milestone.isOverdue && <span className="sr-only">Vencido: </span>}
+                      {formatDate(milestone.targetDate)}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </Panel>
+        ) : (
+          <EmptyPanel
+            title="Sin hitos registrados"
+            description="Los hitos comprometidos en el marco operativo (T8C) aparecen aquí."
+          />
+        ))}
+
+      {view === 'activities' &&
+        ((activities.data?.length ?? 0) > 0 ? (
+          <Panel>
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Actividad</TH>
+                  <TH>Responsable</TH>
+                  <TH>Estado</TH>
+                  <TH className="text-right">Fecha objetivo</TH>
+                </tr>
+              </THead>
+              <TBody>
+                {activities.data!.map((activity) => (
+                  <TR key={activity.id}>
+                    <TD className="max-w-80">
+                      <span className="block truncate" title={activity.name}>
+                        {activity.name}
+                      </span>
+                    </TD>
+                    <TD className="text-ink-2">{activity.responsible}</TD>
+                    <TD>
+                      <OutcomeText
+                        status={activity.status}
+                        success={['COMPLETADA']}
+                        failure={['BLOQUEADA']}
+                      />
+                    </TD>
+                    <TD className="tabular whitespace-nowrap text-right text-muted-foreground">
+                      {formatDate(activity.targetDate)}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </Panel>
+        ) : (
+          <EmptyPanel
+            title="Sin actividades registradas"
+            description="Las actividades de la agenda operativa (T8B) aparecen aquí."
+          />
+        ))}
+
+      {view === 'deliverables' &&
+        ((deliverables.data?.length ?? 0) > 0 ? (
+          <Panel>
+            <ul className="divide-y divide-border-subtle">
+              {deliverables.data!.map((deliverable) => (
+                <li key={deliverable.id} className="space-y-2 px-5 py-3.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-body-sm font-medium">{deliverable.name}</p>
+                      <p className="text-caption text-muted-foreground">
+                        {deliverable.responsible} · objetivo {formatDate(deliverable.targetDate)}
+                      </p>
+                    </div>
+                    <OutcomeText
+                      status={deliverable.status}
+                      success={['LISTO_PARA_CIERRE']}
+                      failure={[]}
+                    />
+                  </div>
+                  {deliverable.versions.length > 0 && (
+                    <ul className="space-y-1">
+                      {deliverable.versions.map((version) => (
+                        <li key={version.id} className="flex items-center gap-3 text-caption">
+                          <span className="tabular w-6 shrink-0 font-semibold text-ink-2">
+                            v{version.versionNumber}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                            {version.notes ?? version.documentVersion?.fileName ?? '—'}
+                          </span>
+                          <span className="shrink-0 text-muted-foreground">
+                            {formatDate(version.createdAt)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        ) : (
+          <EmptyPanel
+            title="Sin entregables registrados"
+            description="Cada carga de un entregable (T8G) conserva las versiones anteriores."
+          />
+        ))}
+
+      {view === 'incidents' &&
+        ((incidents.data?.length ?? 0) > 0 ? (
+          <Panel>
+            <ul className="divide-y divide-border-subtle">
+              {incidents.data!.map((incident) => {
+                const open = isOpenIncident(incident.status);
+                return (
+                  <li key={incident.id} className="space-y-1.5 px-5 py-3.5">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="flex items-center gap-2 text-body-sm font-medium">
+                        {open && (
+                          <TriangleAlert
+                            className="size-3.5 shrink-0 text-danger"
+                            aria-label="Abierta"
+                          />
+                        )}
+                        {incident.title}
+                      </p>
+                      <span className="text-caption text-muted-foreground">
+                        Impacto {humanizeCode(incident.impact).toLowerCase()} ·{' '}
+                        <span className={open ? 'font-medium text-danger' : 'text-success'}>
+                          {humanizeCode(incident.status)}
+                        </span>
+                      </span>
+                    </div>
+                    <p className="max-w-prose text-body-sm leading-relaxed text-ink-2">
+                      {incident.description}
+                    </p>
+                    <p className="text-caption text-muted-foreground">
+                      <span className="font-medium text-ink-2">Acción sugerida:</span>{' '}
+                      {incident.suggestedAction}
+                    </p>
+                    {incident.decision && (
+                      <p className="text-caption text-muted-foreground">
+                        <span className="font-medium text-ink-2">Decisión:</span>{' '}
+                        {incident.decision}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </Panel>
+        ) : (
+          <EmptyPanel
+            title="Sin incidencias"
+            description="No se han reportado incidencias durante la ejecución."
+          />
+        ))}
+    </div>
+  );
 }
 
-function milestoneTone(status: string) {
-  return status === 'CUMPLIDO'
-    ? ('emerald' as const)
-    : status === 'JUSTIFICADO'
-      ? ('slate' as const)
-      : status === 'INCUMPLIDO'
-        ? ('rose' as const)
-        : status === 'EN_CURSO'
-          ? ('blue' as const)
-          : ('amber' as const);
+function OpsStat({
+  label,
+  value,
+  detail,
+  alert,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  alert?: string | null;
+}) {
+  return (
+    <div className="space-y-1 px-5 py-4">
+      <dt className="text-label text-muted-foreground">{label}</dt>
+      <dd className="text-h1 text-foreground">{value}</dd>
+      <dd className="text-caption text-muted-foreground">
+        {alert ? (
+          <span className="inline-flex items-center gap-1 font-medium text-danger">
+            <TriangleAlert className="size-3.5" aria-hidden />
+            {alert}
+          </span>
+        ) : (
+          detail
+        )}
+      </dd>
+    </div>
+  );
 }
 
-function deliverableTone(status: string) {
-  return status === 'LISTO_PARA_CIERRE'
-    ? ('emerald' as const)
-    : status === 'CARGADO' || status === 'EN_REVISION'
-      ? ('blue' as const)
-      : status === 'EN_DESARROLLO'
-        ? ('amber' as const)
-        : ('slate' as const);
+/** Estado de ejecución en texto: sólo éxito y fracaso llevan color. */
+function OutcomeText({
+  status,
+  success,
+  failure,
+}: {
+  status: string;
+  success: string[];
+  failure: string[];
+}) {
+  const tone = success.includes(status)
+    ? 'text-success'
+    : failure.includes(status)
+      ? 'font-medium text-danger'
+      : 'text-ink-2';
+  return <span className={cn('whitespace-nowrap text-body-sm', tone)}>{humanizeCode(status)}</span>;
+}
+
+function criticalityText(criticality: string): string {
+  if (criticality === 'CRITICO') return 'font-medium text-danger';
+  if (criticality === 'ALTO') return 'text-warning';
+  return 'text-ink-2';
 }
 
 // ============================================================================
@@ -1412,69 +1681,88 @@ interface DocumentRow {
   }>;
 }
 
+const latestVersion = (doc: DocumentRow) =>
+  [...doc.versions].sort((a, b) => b.versionNumber - a.versionNumber)[0]!;
+
 function DocumentsTab({ caseId }: { caseId: string }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['case', caseId, 'documents'],
     queryFn: () => api.get<DocumentRow[]>(`/cases/${caseId}/documents`),
   });
 
   if (isLoading) return <Skeleton className="h-48" />;
+  if (error) return <LoadError what="los documentos" onRetry={() => void refetch()} />;
 
   const withFiles = (data ?? []).filter((doc) => doc.versions.length > 0);
 
+  if (withFiles.length === 0) {
+    return (
+      <EmptyPanel
+        title="Sin documentos cargados"
+        description="La estructura documental del caso (Empresa → Caso → Etapa → Versión) está creada y lista para recibir archivos."
+      />
+    );
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Repositorio documental</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Estructura Empresa → Caso → Etapa → Versión · ninguna versión se sobrescribe
-        </p>
-      </CardHeader>
-      <CardContent className={withFiles.length > 0 ? 'p-0' : undefined}>
-        {withFiles.length > 0 ? (
-          <Table>
-            <THead>
-              <TR className="hover:bg-transparent">
-                <TH>Documento</TH>
-                <TH>Etapa</TH>
-                <TH>Versión</TH>
-                <TH>Cargado por</TH>
-                <TH className="text-right">Fecha</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {withFiles.flatMap((doc) =>
-                doc.versions.map((version) => (
-                  <TR key={version.id}>
-                    <TD>
-                      <span className="block max-w-[280px] truncate text-sm">
-                        {version.fileName}
-                      </span>
-                      <span className="text-2xs text-muted-foreground">{doc.type}</span>
-                    </TD>
-                    <TD>
-                      <Badge tone="outline">{doc.stage.toLowerCase()}</Badge>
-                    </TD>
-                    <TD className="font-mono text-xs">v{version.versionNumber}</TD>
-                    <TD className="text-xs">{version.uploadedBy?.fullName ?? '—'}</TD>
-                    <TD className="whitespace-nowrap text-right text-2xs text-muted-foreground">
-                      {formatDate(version.createdAt)}
-                    </TD>
-                  </TR>
-                )),
-              )}
-            </TBody>
-          </Table>
-        ) : (
-          <EmptyState
-            icon={<Package className="size-8" />}
-            title="Sin documentos cargados"
-            description="La estructura documental del caso está creada y lista para recibir archivos."
-          />
-        )}
-      </CardContent>
-    </Card>
+    <Section
+      title="Repositorio documental"
+      description="Empresa → Caso → Etapa → Versión · ninguna versión se sobrescribe"
+    >
+      <Panel>
+        <ul className="divide-y divide-border-subtle">
+          {withFiles.map((doc) => (
+            <DocumentItem key={doc.id} doc={doc} />
+          ))}
+        </ul>
+      </Panel>
+    </Section>
   );
+}
+
+/** Documento con su historial de versiones: la vigente arriba, las anteriores debajo. */
+function DocumentItem({ doc }: { doc: DocumentRow }) {
+  const versions = [...doc.versions].sort((a, b) => b.versionNumber - a.versionNumber);
+  const latest = versions[0]!;
+
+  return (
+    <li className="px-5 py-3.5">
+      <div className="flex items-start gap-3">
+        <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-body-sm font-medium" title={latest.fileName}>
+            {latest.fileName}
+          </p>
+          <p className="text-caption text-muted-foreground">
+            {doc.type} · {humanizeCode(doc.stage)} · {formatBytes(latest.sizeBytes)}
+          </p>
+        </div>
+        <span className="tabular shrink-0 rounded-xs border border-border px-1.5 text-caption font-semibold">
+          v{latest.versionNumber}
+        </span>
+      </div>
+      <ul className="mt-2 space-y-1 pl-7">
+        {versions.map((version) => (
+          <li
+            key={version.id}
+            className="flex items-center gap-3 text-caption text-muted-foreground"
+          >
+            <span className="tabular w-6 shrink-0 font-medium text-ink-2">
+              v{version.versionNumber}
+            </span>
+            <span className="min-w-0 flex-1 truncate">{version.uploadedBy?.fullName ?? '—'}</span>
+            <span className="shrink-0">{formatDate(version.createdAt)}</span>
+          </li>
+        ))}
+      </ul>
+    </li>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 // ============================================================================
@@ -1509,87 +1797,85 @@ function CommunicationsTab({ caseId }: { caseId: string }) {
     queryKey: ['case', caseId, 'communications'],
     queryFn: () => api.get<CommunicationRow[]>(`/cases/${caseId}/communications`),
   });
-
   const meetings = useQuery({
     queryKey: ['case', caseId, 'meetings'],
     queryFn: () => api.get<MeetingRow[]>(`/cases/${caseId}/meetings`),
   });
 
   if (communications.isLoading) return <Skeleton className="h-48" />;
+  if (communications.error) {
+    return <LoadError what="las comunicaciones" onRetry={() => void communications.refetch()} />;
+  }
 
-  const hasData =
-    (communications.data?.length ?? 0) > 0 || (meetings.data?.length ?? 0) > 0;
+  const hasData = (communications.data?.length ?? 0) > 0 || (meetings.data?.length ?? 0) > 0;
 
   if (!hasData) {
     return (
-      <Card>
-        <CardContent>
-          <EmptyState
-            icon={<MessageSquare className="size-8" />}
-            title="Sin comunicaciones registradas"
-            description="Toda interacción relevante del caso se registra aquí: no hay canal directo fuera de la plataforma."
-          />
-        </CardContent>
-      </Card>
+      <EmptyPanel
+        title="Sin comunicaciones registradas"
+        description="Toda interacción relevante del caso se registra aquí: no hay canal directo entre las partes fuera de la plataforma."
+      />
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
       {(communications.data?.length ?? 0) > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Comunicaciones estructuradas</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Interacción controlada por la plataforma (T3A / T3B / TP4A / T8F)
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {communications.data!.map((item) => (
-              <div key={item.id} className="rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge tone="indigo">{item.type.replace(/_/g, ' ').toLowerCase()}</Badge>
-                    <Badge tone="outline">{item.audience.toLowerCase()}</Badge>
-                    {item.answeredAt && <Badge tone="emerald">respondida</Badge>}
+        <Section
+          title="Comunicaciones estructuradas"
+          description="Interacción controlada por la plataforma (T3A · T3B · TP4A · T8F)"
+        >
+          <Panel>
+            <ul className="divide-y divide-border-subtle">
+              {communications.data!.map((item) => (
+                <li key={item.id} className="space-y-1 px-5 py-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-caption text-muted-foreground">
+                    <span>
+                      {humanizeCode(item.type)} · para {humanizeCode(item.audience).toLowerCase()}
+                      {item.answeredAt && (
+                        <span className="ml-2 inline-flex items-center gap-1 text-success">
+                          <CheckCircle2 className="size-3" aria-hidden /> Respondida
+                        </span>
+                      )}
+                    </span>
+                    <span>
+                      {item.createdBy?.fullName ?? 'Sistema'} · {formatDate(item.createdAt)}
+                    </span>
                   </div>
-                  <span className="text-2xs text-muted-foreground">
-                    {item.createdBy?.fullName ?? 'Sistema'} · {formatDate(item.createdAt)}
-                  </span>
-                </div>
-                <p className="mt-1.5 text-sm font-medium">{item.subject}</p>
-                <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                  {item.body}
-                </p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+                  <p className="text-body-sm font-medium">{item.subject}</p>
+                  <p className="max-w-prose whitespace-pre-line text-body-sm leading-relaxed text-ink-2">
+                    {item.body}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </Section>
       )}
 
       {(meetings.data?.length ?? 0) > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Reuniones registradas</CardTitle>
-            <p className="text-xs text-muted-foreground">T8E · reunión de cierre T9E</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {meetings.data!.map((meeting) => (
-              <div key={meeting.id} className="rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-medium">{meeting.title}</p>
-                  <span className="text-2xs text-muted-foreground">
-                    {formatDateTime(meeting.heldAt)} · {meeting.durationMinutes} min
-                  </span>
-                </div>
-                <p className="mt-1 text-2xs text-muted-foreground">
-                  Participantes: {meeting.participants}
-                </p>
-                <p className="mt-1.5 text-sm leading-relaxed">{meeting.conclusions}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <Section title="Reuniones" description="T8E · reunión de cierre T9E">
+          <Panel>
+            <ul className="divide-y divide-border-subtle">
+              {meetings.data!.map((meeting) => (
+                <li key={meeting.id} className="space-y-1 px-5 py-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-body-sm font-medium">{meeting.title}</p>
+                    <span className="tabular text-caption text-muted-foreground">
+                      {formatDateTime(meeting.heldAt)} · {meeting.durationMinutes} min
+                    </span>
+                  </div>
+                  <p className="text-caption text-muted-foreground">
+                    Participantes: {meeting.participants}
+                  </p>
+                  <p className="max-w-prose text-body-sm leading-relaxed text-ink-2">
+                    {meeting.conclusions}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </Section>
       )}
     </div>
   );

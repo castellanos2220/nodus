@@ -1,3 +1,4 @@
+import { RatePolicy, RateLimitPolicy } from '../../core/rate-limit';
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../core/auth/decorators';
@@ -7,6 +8,9 @@ import { PrismaService } from '../../core/prisma/prisma.service';
 import { StorageService } from '../../core/storage/storage.service';
 
 @ApiTags('Health')
+// Sondas de infraestructura (healthcheck de Docker, balanceadores): política propia
+// para que nunca compitan con el tráfico de usuarios ni al revés.
+@RatePolicy(RateLimitPolicy.INTERNAL)
 @Controller('health')
 export class HealthController {
   constructor(

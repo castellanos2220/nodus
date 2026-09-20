@@ -8,7 +8,7 @@ export default function SettingsPage() {
   return (
     <>
       <PageHeader
-        title="Gobierno de plataforma"
+        title="Configuración"
         description={
           'Listas de valores, matriz de roles y plantillas de comunicación. Ninguna clasificación ' +
           'crítica del sistema acepta texto libre: todas apuntan a un código de estas listas.'

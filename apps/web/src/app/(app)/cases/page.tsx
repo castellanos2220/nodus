@@ -32,7 +32,7 @@ export default async function CasesPage() {
         description={DESCRIPTIONS[user.role]}
         actions={
           canCreate && (
-            <Button asChild size="sm">
+            <Button asChild>
               <Link href="/cases/new">
                 <Plus /> Registrar caso
               </Link>
@@ -41,7 +41,7 @@ export default async function CasesPage() {
         }
       />
 
-      <Suspense fallback={<Skeleton className="h-96" />}>
+      <Suspense fallback={<Skeleton className="h-96 rounded-md" />}>
         <CasesTable />
       </Suspense>
     </>

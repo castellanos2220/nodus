@@ -3,21 +3,23 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { CaseStatusCode, Role } from '@nodus/types';
-import { CASE_STATUS_ORDER } from '@nodus/types';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  FileStack,
-  FolderKanban,
-  TrendingUp,
-  UserCheck,
-  Users,
-} from 'lucide-react';
+import { CASE_STATUS_LABEL } from '@nodus/types';
+import { AlertTriangle, ArrowUpRight, CheckCircle2, Hourglass } from 'lucide-react';
 import { api } from '@/lib/api';
+import { CASE_STAGES } from '@/lib/case-stages';
 import { cn, formatRelative } from '@/lib/utils';
-import { Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '@/components/ui/primitives';
-import { CaseStatusBadge } from '@/components/ui/status';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Skeleton,
+} from '@/components/ui/primitives';
+import { Kpi, KpiStrip } from '@/components/ui/kpi';
+import { Stagger, StaggerItem } from '@/components/ui/motion';
+import { StatusBadge } from '@/components/ui/status';
 
 interface Kpis {
   activeCases: number;
@@ -75,10 +77,10 @@ export function DashboardView({ role }: { role: Role }) {
 
   if (isLoading || !kpis) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <Skeleton key={index} className="h-[104px]" />
-        ))}
+      <div className="space-y-6">
+        <Skeleton className="h-[168px] rounded-md" />
+        <Skeleton className="h-[168px] rounded-md" />
+        <Skeleton className="h-72 rounded-md" />
       </div>
     );
   }
@@ -86,309 +88,366 @@ export function DashboardView({ role }: { role: Role }) {
   const isAdvisory = role === 'ADVISORY' || role === 'SUPER_ADMIN';
 
   return (
-    <div className="space-y-6">
-      {/* --- Indicadores principales -------------------------------------- */}
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi
-          label="Casos activos"
-          value={kpis.activeCases}
-          icon={FolderKanban}
-          hint={`${kpis.totalCases} en total`}
-        />
-        <Kpi
-          label="Casos críticos"
-          value={kpis.criticalCases}
-          icon={AlertTriangle}
-          tone={kpis.criticalCases > 0 ? 'warning' : undefined}
-          hint="Impacto alto/crítico o SLA vencido"
-        />
-        <Kpi
-          label="SLA vencidos"
-          value={kpis.overdueSlas}
-          icon={Clock}
-          tone={kpis.overdueSlas > 0 ? 'danger' : undefined}
-          hint={`${kpis.atRiskSlas} en riesgo`}
-        />
-        <Kpi
-          label="Casos cerrados"
-          value={kpis.closedCases}
-          icon={CheckCircle2}
-          tone="success"
-          hint={`${kpis.closedWithoutContracting} sin contratación`}
-        />
+    <div className="space-y-10">
+      {/* --- Operación ---------------------------------------------------- */}
+      <section className="space-y-4">
+        <SectionHeading title="Operación" description="Estado actual de la cartera de casos" />
+        <Stagger>
+          <KpiStrip>
+            <StaggerItem>
+              <Kpi
+                label="Casos activos"
+                value={kpis.activeCases}
+                hint={`${kpis.totalCases} registrados en total`}
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <Kpi
+                label="Casos críticos"
+                value={kpis.criticalCases}
+                tone={kpis.criticalCases > 0 ? 'warning' : 'default'}
+                signal="Requieren atención"
+                hint={kpis.criticalCases > 0 ? undefined : 'Impacto alto o SLA vencido'}
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <Kpi
+                label="SLA vencidos"
+                value={kpis.overdueSlas}
+                tone={kpis.overdueSlas > 0 ? 'danger' : 'default'}
+                signal="Intervención inmediata"
+                hint={`${kpis.atRiskSlas} en riesgo`}
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <Kpi
+                label="Casos cerrados"
+                value={kpis.closedCases}
+                hint={`${kpis.closedWithoutContracting} sin contratación`}
+              />
+            </StaggerItem>
+          </KpiStrip>
+        </Stagger>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi
-          label="Cumplimiento de SLA"
-          value={kpis.slaCompliancePercent === null ? '—' : `${kpis.slaCompliancePercent}%`}
-          icon={TrendingUp}
-          hint="Instancias cerradas dentro de plazo"
-        />
-        <Kpi
-          label="Conversión de propuestas"
-          value={
-            kpis.proposalConversionPercent === null ? '—' : `${kpis.proposalConversionPercent}%`
-          }
-          icon={FileStack}
-          hint={`${kpis.proposalsAccepted} de ${kpis.proposalsSent} enviadas`}
-        />
-        <Kpi
-          label="Consultores habilitados"
-          value={kpis.activeConsultants}
-          icon={Users}
-          hint="Pueden ver oportunidades y postularse"
-        />
-        <Kpi
-          label="Satisfacción media"
-          value={
-            kpis.averageCustomerSatisfaction === null
-              ? '—'
-              : `${kpis.averageCustomerSatisfaction} / 5`
-          }
-          icon={UserCheck}
-          hint="Encuestas de cierre registradas"
-        />
+      {/* --- Rendimiento -------------------------------------------------- */}
+      <section className="space-y-4">
+        <SectionHeading title="Rendimiento" description="Calidad del servicio y del ecosistema" />
+        <Stagger>
+          <KpiStrip>
+            <StaggerItem>
+              <Kpi
+                label="Cumplimiento de SLA"
+                value={formatPercent(kpis.slaCompliancePercent)}
+                meter={kpis.slaCompliancePercent}
+                hint="Relojes cerrados dentro de plazo"
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <Kpi
+                label="Conversión de propuestas"
+                value={formatPercent(kpis.proposalConversionPercent)}
+                meter={kpis.proposalConversionPercent}
+                hint={`${kpis.proposalsAccepted} de ${kpis.proposalsSent} enviadas`}
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <Kpi
+                label="Consultores habilitados"
+                value={kpis.activeConsultants}
+                hint="Pueden postularse a la bolsa"
+              />
+            </StaggerItem>
+            <StaggerItem>
+              <Kpi
+                label="Satisfacción media"
+                value={
+                  kpis.averageCustomerSatisfaction === null ? (
+                    '—'
+                  ) : (
+                    <>
+                      {kpis.averageCustomerSatisfaction}
+                      <span className="ml-1 text-lg font-medium text-subtle-foreground">/ 5</span>
+                    </>
+                  )
+                }
+                hint="Encuestas de cierre"
+              />
+            </StaggerItem>
+          </KpiStrip>
+        </Stagger>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        {/* --- Distribución por estado ------------------------------------ */}
+      {/* --- Pipeline ----------------------------------------------------- */}
+      <section className="space-y-4">
+        <SectionHeading
+          title="Pipeline"
+          description="Casos en cada etapa del ciclo de vida"
+          action={
+            <Link href="/cases" className="link inline-flex items-center gap-1 text-xs">
+              Ver todos <ArrowUpRight className="size-3.5" aria-hidden />
+            </Link>
+          }
+        />
+        <Pipeline rows={kpis.casesByStatus} />
+      </section>
+
+      {/* --- Ciclo y bandeja ---------------------------------------------- */}
+      <section className={cn('grid gap-6', isAdvisory && 'lg:grid-cols-[1.25fr_1fr]')}>
         <Card>
           <CardHeader>
-            <CardTitle>Casos por estado</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Distribución a lo largo del ciclo de vida
-            </p>
+            <CardTitle>Tiempos de ciclo</CardTitle>
+            <CardDescription>Promedio calculado sobre el historial de transiciones</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {kpis.casesByStatus
-              .filter((row) => row.count > 0)
-              .sort((a, b) => CASE_STATUS_ORDER[a.status] - CASE_STATUS_ORDER[b.status])
-              .map((row) => {
-                const max = Math.max(...kpis.casesByStatus.map((item) => item.count), 1);
-                return (
-                  <Link
-                    key={row.status}
-                    href={`/cases?status=${row.status}`}
-                    className="flex items-center gap-3 rounded-lg px-1 py-1 transition-colors hover:bg-secondary/50"
-                  >
-                    <div className="w-44 shrink-0">
-                      <CaseStatusBadge status={row.status} />
-                    </div>
-                    <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className="h-full rounded-full bg-primary/70"
-                        style={{ width: `${(row.count / max) * 100}%` }}
-                      />
-                    </div>
-                    <span className="w-6 shrink-0 text-right font-mono text-xs">{row.count}</span>
-                  </Link>
-                );
-              })}
-            {kpis.casesByStatus.every((row) => row.count === 0) && (
-              <EmptyState title="Aún no hay casos registrados" />
-            )}
+          <CardContent>
+            <ol className="grid gap-6 sm:grid-cols-3">
+              <CycleTime
+                step={1}
+                label="Hasta clasificación"
+                hours={kpis.avgHoursToClassification}
+              />
+              <CycleTime step={2} label="Hasta propuesta" hours={kpis.avgHoursToProposal} />
+              <CycleTime step={3} label="Hasta cierre" hours={kpis.avgHoursToClosure} />
+            </ol>
           </CardContent>
         </Card>
 
-        {/* --- Tiempos medios --------------------------------------------- */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Tiempos medios por etapa</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Calculados sobre el historial de transiciones
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <StageTime label="Hasta clasificación" hours={kpis.avgHoursToClassification} />
-            <StageTime label="Hasta envío de propuesta" hours={kpis.avgHoursToProposal} />
-            <StageTime label="Hasta cierre" hours={kpis.avgHoursToClosure} />
-
-            {isAdvisory && (
-              <div className="space-y-2 border-t border-border pt-4">
-                <PendingRow
-                  label="Postulaciones por evaluar"
-                  count={kpis.pendingApplications}
-                  href="/cases?status=EN_POSTULACION"
-                />
-                <PendingRow
-                  label="Propuestas en QA"
-                  count={kpis.pendingProposalReviews}
-                  href="/proposals"
-                />
-                <PendingRow
-                  label="Esperando decisión del cliente"
-                  count={attention?.pendingClientDecision ?? 0}
-                  href="/cases?status=EN_DECISION_CLIENTE"
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+        {isAdvisory && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Bandeja de Advisory</CardTitle>
+              <CardDescription>Decisiones que esperan a su equipo</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-1 px-3 pb-3">
+              <PendingRow
+                label="Postulaciones por evaluar"
+                count={kpis.pendingApplications}
+                href="/cases?status=EN_POSTULACION"
+              />
+              <PendingRow
+                label="Propuestas en QA"
+                count={kpis.pendingProposalReviews}
+                href="/proposals"
+              />
+              <PendingRow
+                label="Esperando decisión del cliente"
+                count={attention?.pendingClientDecision ?? 0}
+                href="/cases?status=EN_DECISION_CLIENTE"
+              />
+            </CardContent>
+          </Card>
+        )}
+      </section>
 
       {/* --- Cola de atención --------------------------------------------- */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
+      <section className="grid gap-6 lg:grid-cols-2">
+        <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="size-4 text-destructive" aria-hidden />
               SLA vencido
+              {attention && attention.overdueSla.length > 0 && (
+                <span className="tabular rounded-full bg-danger-soft px-1.5 text-[11px] font-semibold text-danger">
+                  {attention.overdueSla.length}
+                </span>
+              )}
             </CardTitle>
-            <p className="text-xs text-muted-foreground">Requieren intervención inmediata</p>
+            <CardDescription>Casos cuyo reloj de etapa ya expiró</CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
-            {attention && attention.overdueSla.length > 0 ? (
-              <ul className="divide-y divide-border">
-                {attention.overdueSla.map((item) => (
-                  <li key={item.id}>
-                    <Link
-                      href={`/cases/${item.id}`}
-                      className="block px-5 py-3 transition-colors hover:bg-secondary/40"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{item.title}</p>
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                            <span className="font-mono">{item.code}</span> · {item.company.name}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <CaseStatusBadge status={item.status} />
-                          {item.sla && (
-                            <p className="mt-1 text-2xs text-destructive">
-                              venció {formatRelative(item.sla.deadline)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState
-                icon={<CheckCircle2 className="size-8" />}
-                title="Ningún SLA vencido"
-                description="Todos los relojes activos están dentro de plazo."
-              />
-            )}
-          </CardContent>
+          {attention && attention.overdueSla.length > 0 ? (
+            <ul className="divide-y divide-border border-t border-border">
+              {attention.overdueSla.map((item) => (
+                <AttentionRow
+                  key={item.id}
+                  href={`/cases/${item.id}`}
+                  title={item.title}
+                  code={item.code}
+                  company={item.company.name}
+                  status={item.status}
+                  meta={
+                    item.sla ? (
+                      <span className="inline-flex items-center gap-1 text-danger">
+                        <AlertTriangle className="size-3" aria-hidden />
+                        venció {formatRelative(item.sla.deadline)}
+                      </span>
+                    ) : null
+                  }
+                />
+              ))}
+            </ul>
+          ) : (
+            <EmptyState
+              className="py-10"
+              icon={<CheckCircle2 />}
+              title="Ningún SLA vencido"
+              description="Todos los relojes activos están dentro de plazo."
+            />
+          )}
         </Card>
 
-        <Card>
+        <Card className="overflow-hidden">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="size-4 text-muted-foreground" aria-hidden />
-              Casos estancados
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">Sin movimiento en más de 14 días</p>
+            <CardTitle>Casos estancados</CardTitle>
+            <CardDescription>Sin movimiento en más de 14 días</CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
-            {attention && attention.stalled.length > 0 ? (
-              <ul className="divide-y divide-border">
-                {attention.stalled.map((item) => (
-                  <li key={item.id}>
-                    <Link
-                      href={`/cases/${item.id}`}
-                      className="block px-5 py-3 transition-colors hover:bg-secondary/40"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{item.title}</p>
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                            <span className="font-mono">{item.code}</span> · {item.company.name}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <CaseStatusBadge status={item.status} />
-                          <p className="mt-1 text-2xs text-muted-foreground">
-                            {formatRelative(item.updatedAt)}
-                          </p>
-                        </div>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState
-                icon={<CheckCircle2 className="size-8" />}
-                title="Ningún caso estancado"
-                description="Todos los casos han tenido movimiento reciente."
-              />
-            )}
-          </CardContent>
+          {attention && attention.stalled.length > 0 ? (
+            <ul className="divide-y divide-border border-t border-border">
+              {attention.stalled.map((item) => (
+                <AttentionRow
+                  key={item.id}
+                  href={`/cases/${item.id}`}
+                  title={item.title}
+                  code={item.code}
+                  company={item.company.name}
+                  status={item.status}
+                  meta={
+                    <span className="inline-flex items-center gap-1">
+                      <Hourglass className="size-3" aria-hidden />
+                      {formatRelative(item.updatedAt)}
+                    </span>
+                  }
+                />
+              ))}
+            </ul>
+          ) : (
+            <EmptyState
+              className="py-10"
+              icon={<CheckCircle2 />}
+              title="Ningún caso estancado"
+              description="Todos los casos han tenido movimiento reciente."
+            />
+          )}
         </Card>
-      </div>
+      </section>
 
-      <p className="text-center text-2xs text-muted-foreground">
+      <p className="text-center text-2xs text-subtle-foreground">
         Indicadores calculados con agregados SQL · actualizados {formatRelative(kpis.generatedAt)}
       </p>
     </div>
   );
 }
 
-function Kpi({
-  label,
-  value,
-  icon: Icon,
-  hint,
-  tone,
+// ============================================================================
+
+function SectionHeading({
+  title,
+  description,
+  action,
 }: {
-  label: string;
-  value: number | string;
-  icon: typeof FolderKanban;
-  hint?: string;
-  tone?: 'success' | 'warning' | 'danger';
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
 }) {
   return (
-    <Card>
-      <CardContent className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <p className="label-caps">{label}</p>
-          <Icon
-            className={cn(
-              'size-4',
-              tone === 'danger'
-                ? 'text-destructive'
-                : tone === 'warning'
-                  ? 'text-warning'
-                  : tone === 'success'
-                    ? 'text-success'
-                    : 'text-muted-foreground',
-            )}
-            aria-hidden
-          />
-        </div>
-        <p
-          className={cn(
-            'font-mono text-2xl font-semibold tabular-nums',
-            tone === 'danger' && 'text-destructive',
-            tone === 'warning' && 'text-warning',
-          )}
-        >
-          {value}
-        </p>
-        {hint && <p className="text-2xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
+    <div className="flex items-end justify-between gap-4">
+      <div>
+        <h2 className="text-base font-semibold">{title}</h2>
+        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      </div>
+      {action}
+    </div>
   );
 }
 
-function StageTime({ label, hours }: { label: string; hours: number | null }) {
-  const display =
-    hours === null
-      ? '—'
-      : hours < 24
-        ? `${hours.toFixed(1)} h`
-        : `${(hours / 24).toFixed(1)} días`;
+function formatPercent(value: number | null): string {
+  return value === null ? '—' : `${value}%`;
+}
+
+function formatHours(hours: number | null): { value: string; unit: string } {
+  if (hours === null) return { value: '—', unit: '' };
+  if (hours < 24) return { value: hours.toFixed(1), unit: 'horas' };
+  return { value: (hours / 24).toFixed(1), unit: 'días' };
+}
+
+/**
+ * Pipeline por etapas. Una sola serie (casos) en un solo color: la barra de cada
+ * etapa es proporcional a la etapa más cargada. Los estados de la etapa se
+ * listan debajo como enlaces al listado filtrado.
+ */
+function Pipeline({ rows }: { rows: Kpis['casesByStatus'] }) {
+  const byStatus = new Map(rows.map((row) => [row.status, row.count]));
+  const stages = CASE_STAGES.map((stage) => ({
+    ...stage,
+    total: stage.statuses.reduce((sum, status) => sum + (byStatus.get(status) ?? 0), 0),
+  }));
+  const max = Math.max(...stages.map((stage) => stage.total), 1);
+
+  if (stages.every((stage) => stage.total === 0)) {
+    return (
+      <Card>
+        <EmptyState title="Aún no hay casos registrados" />
+      </Card>
+    );
+  }
 
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="font-mono text-sm font-semibold tabular-nums">{display}</span>
+    <div className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      {stages.map((stage, index) => (
+        <div key={stage.id} className="flex flex-col gap-4 bg-card p-5">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">
+                <span className="tabular mr-1.5 text-subtle-foreground">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                {stage.label}
+              </span>
+            </div>
+            <p
+              className={cn(
+                'text-2xl font-semibold',
+                stage.total === 0 ? 'text-subtle-foreground' : 'text-foreground',
+              )}
+            >
+              {stage.total}
+            </p>
+            <div className="h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
+              <div
+                className="h-full rounded-full bg-brand transition-[width] duration-700"
+                style={{ width: `${(stage.total / max) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          <ul className="space-y-1">
+            {stage.statuses.map((status) => {
+              const count = byStatus.get(status) ?? 0;
+              return (
+                <li key={status}>
+                  <Link
+                    href={`/cases?status=${status}`}
+                    className={cn(
+                      '-mx-1.5 flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-muted',
+                      count > 0 ? 'text-ink-2' : 'text-subtle-foreground',
+                    )}
+                  >
+                    <span className="truncate">{CASE_STATUS_LABEL[status]}</span>
+                    <span className="tabular shrink-0 font-medium">{count}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </div>
+  );
+}
+
+function CycleTime({ step, label, hours }: { step: number; label: string; hours: number | null }) {
+  const { value, unit } = formatHours(hours);
+
+  return (
+    <li className="relative space-y-2 border-l border-border pl-4">
+      <span className="absolute -left-[3.5px] top-1 size-1.5 rounded-full bg-brand" aria-hidden />
+      <p className="text-xs text-muted-foreground">
+        <span className="tabular mr-1.5 text-subtle-foreground">{step}</span>
+        {label}
+      </p>
+      <p className="text-2xl font-semibold">
+        {value}
+        {unit && <span className="ml-1.5 text-sm font-medium text-muted-foreground">{unit}</span>}
+      </p>
+    </li>
   );
 }
 
@@ -396,17 +455,60 @@ function PendingRow({ label, count, href }: { label: string; count: number; href
   return (
     <Link
       href={href}
-      className="flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors hover:bg-secondary/60"
+      className="group flex items-center justify-between gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-muted"
     >
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span
-        className={cn(
-          'rounded-md px-1.5 py-0.5 font-mono text-xs font-semibold',
-          count > 0 ? 'bg-accent text-accent-foreground' : 'text-muted-foreground',
-        )}
-      >
-        {count}
+      <span className="text-sm text-ink-2">{label}</span>
+      <span className="flex items-center gap-2">
+        <span
+          className={cn(
+            'tabular min-w-7 rounded-md px-2 py-0.5 text-center text-sm font-semibold',
+            count > 0 ? 'bg-brand-soft text-brand-strong' : 'text-subtle-foreground',
+          )}
+        >
+          {count}
+        </span>
+        <ArrowUpRight
+          className="size-3.5 text-subtle-foreground transition-colors group-hover:text-foreground"
+          aria-hidden
+        />
       </span>
     </Link>
+  );
+}
+
+function AttentionRow({
+  href,
+  title,
+  code,
+  company,
+  status,
+  meta,
+}: {
+  href: string;
+  title: string;
+  code: string;
+  company: string;
+  status: CaseStatusCode;
+  meta: React.ReactNode;
+}) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className="flex items-start justify-between gap-4 px-6 py-3.5 transition-colors hover:bg-muted/50"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-foreground">{title}</span>
+          <span className="mt-1 flex items-center gap-2 truncate text-xs text-muted-foreground">
+            <span className="code">{code}</span>
+            <span className="truncate">{company}</span>
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1.5">
+          <StatusBadge status={status} variant="plain" />
+          <span className="text-2xs text-muted-foreground">{meta}</span>
+        </span>
+      </Link>
+    </li>
   );
 }

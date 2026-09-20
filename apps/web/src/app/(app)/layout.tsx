@@ -9,11 +9,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar role={user.role} fullName={user.fullName} />
+      <Sidebar role={user.role} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar role={user.role} fullName={user.fullName} email={user.email} />
-        <main className="min-w-0 flex-1 px-4 py-6 lg:px-8">{children}</main>
+        <Topbar
+          role={user.role}
+          fullName={user.fullName}
+          email={user.email}
+          permissions={user.permissions}
+        />
+        <main className="mx-auto w-full min-w-0 max-w-page flex-1 px-4 pb-12 pt-6 sm:px-6 lg:px-8">
+          {children}
+        </main>
       </div>
     </div>
   );

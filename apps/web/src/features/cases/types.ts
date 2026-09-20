@@ -102,7 +102,12 @@ export interface CaseDetail {
     id: string;
     isPrimary: boolean;
     createdAt: string;
-    consultant: { id: string; code: string; tier: string | null; user: { fullName: string; email: string } };
+    consultant: {
+      id: string;
+      code: string;
+      tier: string | null;
+      user: { fullName: string; email: string };
+    };
   }>;
   sla: {
     id: string;

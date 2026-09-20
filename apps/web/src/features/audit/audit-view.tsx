@@ -3,11 +3,25 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Bot, ChevronLeft, ChevronRight, Lock, ShieldCheck } from 'lucide-react';
+import { Bot, ChevronDown, Lock, ScrollText } from 'lucide-react';
 import { api } from '@/lib/api';
-import { formatDateTime } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, EmptyState, Input, Select, Skeleton, TBody, TD, TH, THead, TR, Table } from '@/components/ui/primitives';
+import { cn, formatDateTime } from '@/lib/utils';
+import {
+  Card,
+  EmptyState,
+  Select,
+  Skeleton,
+  TBody,
+  TD,
+  TH,
+  THead,
+  TR,
+  Table,
+} from '@/components/ui/primitives';
+import { FilterBar, SearchInput } from '@/components/ui/filter-bar';
+import { SegmentedControl } from '@/components/ui/segmented';
+import { Pagination } from '@/components/ui/pagination';
+import { UserAvatar } from '@/components/ui/avatar';
 import type { Paginated } from '@/features/cases/types';
 
 interface AuditRow {
@@ -28,9 +42,11 @@ interface AuditRow {
   company: { id: string; code: string; name: string } | null;
 }
 
+type OriginFilter = '' | 'USER' | 'SYSTEM';
+
 export function AuditView() {
   const [action, setAction] = React.useState('');
-  const [origin, setOrigin] = React.useState('');
+  const [origin, setOrigin] = React.useState<OriginFilter>('');
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [expanded, setExpanded] = React.useState<string | null>(null);
@@ -41,7 +57,7 @@ export function AuditView() {
     staleTime: 60_000,
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ['audit', { action, origin, page }],
     queryFn: () =>
       api.get<Paginated<AuditRow>>('/audit', {
@@ -63,13 +79,13 @@ export function AuditView() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <Input
+      <FilterBar>
+        <SearchInput
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onValueChange={setSearch}
           placeholder="Filtrar en esta página…"
-          className="max-w-[240px]"
           aria-label="Filtrar registros"
+          containerClassName="max-w-xs"
         />
 
         <Select
@@ -78,7 +94,7 @@ export function AuditView() {
             setAction(event.target.value);
             setPage(1);
           }}
-          className="w-auto min-w-[240px]"
+          className="w-auto min-w-[260px]"
           aria-label="Filtrar por acción"
         >
           <option value="">Todas las acciones</option>
@@ -90,31 +106,34 @@ export function AuditView() {
           ))}
         </Select>
 
-        <Select
+        <SegmentedControl<OriginFilter>
+          options={[
+            { value: '', label: 'Todo origen' },
+            { value: 'USER', label: 'Usuario' },
+            { value: 'SYSTEM', label: 'Sistema' },
+          ]}
           value={origin}
-          onChange={(event) => {
-            setOrigin(event.target.value);
+          onValueChange={(value) => {
+            setOrigin(value);
             setPage(1);
           }}
-          className="w-auto min-w-[150px]"
-          aria-label="Filtrar por origen"
-        >
-          <option value="">Cualquier origen</option>
-          <option value="USER">Usuario</option>
-          <option value="SYSTEM">Sistema</option>
-        </Select>
-      </div>
+          layoutId="audit-origin"
+          ariaLabel="Filtrar por origen"
+        />
+      </FilterBar>
 
       <Card className="overflow-hidden">
-        <div className="flex items-center gap-2 border-b border-border bg-secondary/40 px-5 py-2.5">
+        <div className="flex items-center gap-2.5 border-b border-border px-6 py-3">
           <Lock className="size-3.5 text-muted-foreground" aria-hidden />
-          <p className="text-2xs text-muted-foreground">
-            Registro inmutable · {data?.meta.total ?? 0} eventos registrados
+          <p className="text-xs text-muted-foreground">
+            Registro inmutable ·{' '}
+            <span className="tabular font-medium text-foreground">{data?.meta.total ?? 0}</span>{' '}
+            eventos registrados
           </p>
         </div>
 
         {isLoading ? (
-          <div className="space-y-2 p-5">
+          <div className="space-y-3 p-6">
             {Array.from({ length: 8 }).map((_, index) => (
               <Skeleton key={index} className="h-10" />
             ))}
@@ -123,128 +142,130 @@ export function AuditView() {
           <>
             <Table>
               <THead>
-                <TR className="hover:bg-transparent">
+                <tr>
                   <TH>Fecha</TH>
                   <TH>Acción</TH>
                   <TH>Entidad</TH>
                   <TH>Actor</TH>
                   <TH>Caso</TH>
-                  <TH className="text-right">Detalle</TH>
-                </TR>
+                  <TH className="w-12">
+                    <span className="sr-only">Detalle</span>
+                  </TH>
+                </tr>
               </THead>
               <TBody>
-                {rows.map((row) => (
-                  <React.Fragment key={row.id}>
-                    <TR>
-                      <TD className="whitespace-nowrap text-2xs text-muted-foreground">
-                        {formatDateTime(row.createdAt)}
-                      </TD>
-                      <TD>
-                        <span className="font-mono text-2xs">{row.action}</span>
-                      </TD>
-                      <TD className="text-xs">{row.entity}</TD>
-                      <TD>
-                        {row.origin === 'SYSTEM' ? (
-                          <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
-                            <Bot className="size-3" aria-hidden /> Sistema
+                {rows.map((row) => {
+                  const open = expanded === row.id;
+                  return (
+                    <React.Fragment key={row.id}>
+                      <TR
+                        className={cn('cursor-pointer', open && 'bg-muted/45')}
+                        onClick={() => setExpanded(open ? null : row.id)}
+                      >
+                        <TD className="tabular whitespace-nowrap text-xs text-muted-foreground">
+                          {formatDateTime(row.createdAt)}
+                        </TD>
+                        <TD>
+                          <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-ink-2">
+                            {row.action}
                           </span>
-                        ) : (
-                          <>
-                            <span className="block text-xs">{row.actor?.fullName ?? '—'}</span>
-                            {row.actorRole && (
-                              <span className="text-2xs text-muted-foreground">
-                                {row.actorRole.replace(/_/g, ' ').toLowerCase()}
+                        </TD>
+                        <TD className="text-sm text-ink-2">{row.entity}</TD>
+                        <TD>
+                          {row.origin === 'SYSTEM' ? (
+                            <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="flex size-6 items-center justify-center rounded-full border border-border bg-card">
+                                <Bot className="size-3.5" aria-hidden />
                               </span>
-                            )}
-                          </>
-                        )}
-                      </TD>
-                      <TD>
-                        {row.case ? (
-                          <Link
-                            href={`/cases/${row.case.id}`}
-                            className="font-mono text-2xs hover:underline"
+                              Sistema
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-2">
+                              <UserAvatar name={row.actor?.fullName ?? '—'} size="sm" />
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm">
+                                  {row.actor?.fullName ?? '—'}
+                                </span>
+                                {row.actorRole && (
+                                  <span className="block text-2xs text-muted-foreground">
+                                    {row.actorRole.replace(/_/g, ' ').toLowerCase()}
+                                  </span>
+                                )}
+                              </span>
+                            </span>
+                          )}
+                        </TD>
+                        <TD>
+                          {row.case ? (
+                            <Link
+                              href={`/cases/${row.case.id}`}
+                              className="code hover:text-brand-strong"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {row.case.code}
+                            </Link>
+                          ) : (
+                            <span className="text-xs text-subtle-foreground">—</span>
+                          )}
+                        </TD>
+                        <TD className="text-right">
+                          <button
+                            type="button"
+                            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            aria-expanded={open}
+                            aria-label={open ? 'Ocultar detalle' : 'Ver detalle'}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setExpanded(open ? null : row.id);
+                            }}
                           >
-                            {row.case.code}
-                          </Link>
-                        ) : (
-                          <span className="text-2xs text-muted-foreground">—</span>
-                        )}
-                      </TD>
-                      <TD className="text-right">
-                        <button
-                          type="button"
-                          className="text-2xs text-muted-foreground underline-offset-2 hover:underline"
-                          onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                        >
-                          {expanded === row.id ? 'Ocultar' : 'Ver'}
-                        </button>
-                      </TD>
-                    </TR>
-
-                    {expanded === row.id && (
-                      <TR className="hover:bg-transparent">
-                        <TD colSpan={6} className="bg-secondary/30">
-                          <div className="grid gap-3 py-1 md:grid-cols-2">
-                            <AuditJson label="Valor anterior" value={row.previousValue} />
-                            <AuditJson label="Valor nuevo" value={row.newValue} />
-                            {row.metadata && <AuditJson label="Metadatos" value={row.metadata} />}
-                            <div className="space-y-1">
-                              <p className="label-caps">Trazabilidad técnica</p>
-                              <p className="font-mono text-2xs text-muted-foreground">
-                                id: {row.id}
-                              </p>
-                              {row.requestId && (
-                                <p className="font-mono text-2xs text-muted-foreground">
-                                  request: {row.requestId}
-                                </p>
-                              )}
-                              {row.ip && (
-                                <p className="font-mono text-2xs text-muted-foreground">
-                                  ip: {row.ip}
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                            <ChevronDown
+                              className={cn('size-4 transition-transform', open && 'rotate-180')}
+                              aria-hidden
+                            />
+                          </button>
                         </TD>
                       </TR>
-                    )}
-                  </React.Fragment>
-                ))}
+
+                      {open && (
+                        <tr>
+                          <td
+                            colSpan={6}
+                            className="border-t border-border bg-background px-6 py-5"
+                          >
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <AuditJson label="Valor anterior" value={row.previousValue} />
+                              <AuditJson label="Valor nuevo" value={row.newValue} />
+                              {row.metadata && <AuditJson label="Metadatos" value={row.metadata} />}
+                              <div className="space-y-1.5">
+                                <p className="label-caps">Trazabilidad técnica</p>
+                                <dl className="space-y-1 font-mono text-[11px] text-muted-foreground">
+                                  <div>id: {row.id}</div>
+                                  {row.requestId && <div>request: {row.requestId}</div>}
+                                  {row.ip && <div>ip: {row.ip}</div>}
+                                </dl>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </TBody>
             </Table>
 
-            <div className="flex items-center justify-between border-t border-border px-5 py-3">
-              <p className="text-xs text-muted-foreground">
-                Página {data?.meta.page} de {data?.meta.totalPages}
-              </p>
-              <div className="flex gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!data?.meta.hasPrev}
-                  onClick={() => setPage((current) => current - 1)}
-                >
-                  <ChevronLeft /> Anterior
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!data?.meta.hasNext}
-                  onClick={() => setPage((current) => current + 1)}
-                >
-                  Siguiente <ChevronRight />
-                </Button>
-              </div>
-            </div>
+            {data && (
+              <Pagination
+                meta={data.meta}
+                noun={['evento', 'eventos']}
+                isFetching={isFetching}
+                onPageChange={setPage}
+              />
+            )}
           </>
         ) : (
-          <CardContent>
-            <EmptyState
-              icon={<ShieldCheck className="size-9" />}
-              title="Sin registros que coincidan"
-            />
-          </CardContent>
+          <EmptyState icon={<ScrollText />} title="Sin registros que coincidan" />
         )}
       </Card>
     </div>
@@ -255,9 +276,9 @@ function AuditJson({ label, value }: { label: string; value: unknown }) {
   if (value === null || value === undefined) return null;
 
   return (
-    <div className="space-y-1">
+    <div className="min-w-0 space-y-1.5">
       <p className="label-caps">{label}</p>
-      <pre className="scroll-x max-h-40 rounded-md border border-border bg-card p-2 font-mono text-2xs leading-relaxed">
+      <pre className="scroll-x max-h-48 rounded-md border border-border bg-card p-3 font-mono text-[11px] leading-relaxed text-ink-2">
         {JSON.stringify(value, null, 2)}
       </pre>
     </div>
